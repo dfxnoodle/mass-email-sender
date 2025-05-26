@@ -24,7 +24,7 @@
                                 <h6 class="mb-0">{{ template.name }}</h6>
                                 <div class="btn-group btn-group-sm">
                                     <button type="button" class="btn btn-outline-primary" 
-                                            onclick="previewTemplate('{{ template.filename }}')">
+                                            onclick="togglePreview('{{ template.filename }}')">
                                         <i class="bi bi-eye"></i>
                                     </button>
                                     <button type="button" class="btn btn-outline-danger" 
@@ -45,6 +45,28 @@
                                         {% else %}
                                             {{ template.body|striptags }}
                                         {% endif %}
+                                    </div>
+                                </div>
+                                
+                                <!-- Inline Preview Content (hidden by default) -->
+                                <div id="preview-{{ template.filename }}" class="template-preview" style="display: none;">
+                                    <div class="border rounded p-3 bg-white">
+                                        <h6 class="text-primary">Full Template Preview</h6>
+                                        <div class="mb-2">
+                                            <strong>Subject:</strong>
+                                            <div class="bg-light p-2 rounded small">{{ template.subject }}</div>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong>Rendered Body:</strong>
+                                            <div class="border p-2 rounded" style="max-height: 300px; overflow-y: auto;">
+                                                {{ template.body|safe }}
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <button class="btn btn-sm btn-secondary" onclick="togglePreview('{{ template.filename }}')">
+                                                <i class="bi bi-x"></i> Close Preview
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -95,72 +117,19 @@
     </div>
 </div>
 
-<!-- Template Preview Modal -->
-<div class="modal fade" id="templatePreviewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Template Preview</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="templatePreviewContent">
-                <!-- Template content will be loaded here -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
-function previewTemplate(filename) {
-    fetch(`/load_template/${filename}`)
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const template = data.template;
-            const previewContent = document.getElementById('templatePreviewContent');
-            
-            previewContent.innerHTML = `
-                <div class="mb-3">
-                    <h6>Template Name:</h6>
-                    <p class="bg-light p-2 rounded">${template.name}</p>
-                </div>
-                <div class="mb-3">
-                    <h6>Subject:</h6>
-                    <p class="bg-light p-2 rounded">${template.subject}</p>
-                </div>
-                <div class="mb-3">
-                    <h6>Sender Name:</h6>
-                    <p class="bg-light p-2 rounded">${template.sender_name || 'Not specified'}</p>
-                </div>
-                <div class="mb-3">
-                    <h6>Body (HTML):</h6>
-                    <div class="bg-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">
-                        <div class="mb-2">
-                            <strong>Rendered:</strong>
-                            <div class="border p-2 rounded">${template.body}</div>
-                        </div>
-                        <div>
-                            <strong>HTML Code:</strong>
-                            <pre class="bg-dark text-light p-2 rounded small">${template.body.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Show modal
-            const modal = new bootstrap.Modal(document.getElementById('templatePreviewModal'));
-            modal.show();
-        } else {
-            alert('Error loading template: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error loading template');
-    });
+function togglePreview(filename) {
+    const previewElement = document.getElementById(`preview-${filename}`);
+    
+    if (previewElement.style.display === 'none') {
+        // Show preview
+        previewElement.style.display = 'block';
+        // Scroll to preview
+        previewElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+        // Hide preview
+        previewElement.style.display = 'none';
+    }
 }
 
 function deleteTemplate(filename, templateName) {
