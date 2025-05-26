@@ -145,7 +145,10 @@ def save_template(name, subject, body, sender_name=''):
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(template_data, f, indent=2, ensure_ascii=False)
         
-        return True, "Template saved successfully"
+        # Add filename to template data for frontend
+        template_data['filename'] = filename
+        
+        return True, template_data
     except Exception as e:
         logger.error(f"Error saving template: {str(e)}")
         return False, f"Error saving template: {str(e)}"
@@ -440,8 +443,11 @@ def save_template_route():
         if not all([name, subject, body]):
             return jsonify({'success': False, 'error': 'Template name, subject, and body are required'})
         
-        success, message = save_template(name, subject, body, sender_name)
-        return jsonify({'success': success, 'message': message})
+        success, result = save_template(name, subject, body, sender_name)
+        if success:
+            return jsonify({'success': True, 'message': 'Template saved successfully', 'template': result})
+        else:
+            return jsonify({'success': False, 'error': result})
         
     except Exception as e:
         logger.error(f"Error saving template: {str(e)}")

@@ -1,0 +1,8 @@
+{
+  "name": "online survey voucher email template",
+  "subject": "[Final testing] Voucher awarded for the CUHK’s main website revamp online survey",
+  "body": "<p></p><p>Dear Participant,</p><p></p><p>Thank you for completing the online survey for CUHK’s main website revamp. We are pleased to inform you that you have been awarded a $25 Starbucks e-voucher or a $25 The Infinity Room voucher! Please fill out <a href=\"{Link}\" rel=\"noopener noreferrer\" target=\"_blank\">this form </a>by <span style=\"background-color: rgb(229, 241, 143);\">9 Jun 2025</span> to provide the necessary personal information, which will only be used for redemption arrangements. Thank you!</p><p>If you have any questions, please contact Carmen (<a href=\"https://www.notion.so/91e92b4b7dc94f8e9f181124a24ab5a1?pvs=21\" rel=\"noopener noreferrer\" target=\"_blank\">carmenlui@cuhk.edu.hk</a>). We appreciate your participation in the online survey.</p><p></p><p>Regards, </p><p>Communications and Public Relations</p>",
+  "sender_name": "Dino Testing",
+  "created_at": "2025-05-26T14:29:29.993664",
+  "updated_at": "2025-05-26T14:29:29.993682"
+}

@@ -681,12 +681,14 @@
                         'sender_name': senderName
                     })
                 })
-                .then(response => response.json())                .then(data => {
+                .then(response => response.json())
+                .then(data => {
                     if (data.success) {
                         alert('Template saved successfully!');
                         document.getElementById('templateName').value = '';
-                        // Don't reload the page, just clear the template name field
-                        // The form content should remain unchanged
+                        
+                        // Update the template list dynamically
+                        updateTemplateList(data.template);
                     } else {
                         alert('Error saving template: ' + (data.error || 'Unknown error'));
                     }
@@ -700,6 +702,89 @@
                 alert('Error saving template: ' + error.message);
             }
         };
+
+        // Function to update template list dynamically
+        function updateTemplateList(templateData) {
+            try {
+                // Check if templates list exists
+                let templateListContainer = document.querySelector('.list-group');
+                let noTemplatesMessage = document.querySelector('.text-muted.text-center');
+                
+                // If no templates container exists, create the template list structure
+                if (!templateListContainer) {
+                    // Remove "No saved templates yet" message
+                    if (noTemplatesMessage) {
+                        noTemplatesMessage.style.display = 'none';
+                    }
+                    
+                    // Create the template list section
+                    const templateManagementCard = document.querySelector('.card.mt-3 .card-body');
+                    if (templateManagementCard) {
+                        // Find the save template section
+                        const saveTemplateSection = templateManagementCard.querySelector('.mb-3');
+                        
+                        // Create new template list section
+                        const newTemplateSection = document.createElement('div');
+                        newTemplateSection.className = 'mb-3';
+                        newTemplateSection.innerHTML = `
+                            <label class="form-label">Load Saved Template</label>
+                            <div class="list-group"></div>
+                        `;
+                        
+                        // Insert after the save template section and before the manage link
+                        const manageLink = templateManagementCard.querySelector('.text-center');
+                        if (manageLink) {
+                            templateManagementCard.insertBefore(newTemplateSection, manageLink);
+                        } else {
+                            templateManagementCard.appendChild(newTemplateSection);
+                        }
+                        
+                        templateListContainer = newTemplateSection.querySelector('.list-group');
+                    }
+                }
+                
+                // Create new template item
+                if (templateListContainer && templateData) {
+                    const newTemplateItem = document.createElement('div');
+                    newTemplateItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    
+                    // Truncate subject if too long
+                    const truncatedSubject = templateData.subject && templateData.subject.length > 50 
+                        ? templateData.subject.substring(0, 50) + '...'
+                        : templateData.subject || '';
+                    
+                    // Format date (assuming ISO format from server)
+                    const updatedDate = templateData.updated_at 
+                        ? templateData.updated_at.substring(0, 10) 
+                        : new Date().toISOString().substring(0, 10);
+                    
+                    newTemplateItem.innerHTML = `
+                        <div>
+                            <strong>${escapeHTML(templateData.name || 'Untitled')}</strong>
+                            <br>
+                            <small class="text-muted">${escapeHTML(truncatedSubject)}</small>
+                            <br>
+                            <small class="text-muted">Updated: ${updatedDate}</small>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-primary" 
+                                    onclick="loadTemplate('${escapeHTML(templateData.filename || '')}')">
+                                <i class="bi bi-upload"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger" 
+                                    onclick="deleteTemplate('${escapeHTML(templateData.filename || '')}', '${escapeHTML(templateData.name || '')}')">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    
+                    // Add to the beginning of the list (most recent first)
+                    templateListContainer.insertBefore(newTemplateItem, templateListContainer.firstChild);
+                }
+            } catch (error) {
+                console.error('Error updating template list:', error);
+            }
+        }
 
         window.loadTemplate = function(filename) {
             fetch(`/load_template/${filename}`)
@@ -746,7 +831,8 @@
                 fetch(`/delete_template/${filename}`, {
                     method: 'POST'
                 })
-                .then(response => response.json())                .then(data => {
+                .then(response => response.json())
+                .then(data => {
                     if (data.success) {
                         alert('Template deleted successfully!');
                         // Don't reload the page, just remove the template from the list
