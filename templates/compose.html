@@ -1,0 +1,773 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0"><i class="bi bi-envelope-plus me-2"></i>Compose Email</h4>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('send_emails') }}" method="post" id="emailForm">
+                    <input type="hidden" name="filepath" value="{{ filepath }}">
+                    
+                    <!-- Sender Information -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="sender_email" class="form-label">Sender Email *</label>
+                            <input type="email" class="form-control" id="sender_email" name="sender_email" required>
+                            <div class="form-text">Must be a valid CUHK email address</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="sender_name" class="form-label">Sender Name</label>
+                            <input type="text" class="form-control" id="sender_name" name="sender_name">
+                        </div>
+                    </div>
+
+                    <!-- Email Column Selection -->
+                    <div class="mb-3">
+                        <label for="email_column" class="form-label">Email Column *</label>
+                        <select class="form-select" id="email_column" name="email_column" required>
+                            {% for column in columns %}
+                                {% if 'email' in column.lower() %}
+                                    <option value="{{ column }}" selected>{{ column }}</option>
+                                {% else %}
+                                    <option value="{{ column }}">{{ column }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Email Subject -->
+                    <div class="mb-3">
+                        <label for="subject" class="form-label">Subject *</label>
+                        <input type="text" class="form-control" id="subject" name="subject" required>
+                        <div class="form-text">You can use placeholders like {name} for personalization</div>
+                    </div>
+
+                    <!-- Email Body -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label for="body" class="form-label mb-0">Email Body *</label>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input type="radio" class="btn-check" name="editorMode" id="richMode" checked>
+                                <label class="btn btn-outline-primary" for="richMode">
+                                    <i class="bi bi-palette me-1"></i>Rich Editor
+                                </label>
+                                <input type="radio" class="btn-check" name="editorMode" id="htmlMode">
+                                <label class="btn btn-outline-primary" for="htmlMode">
+                                    <i class="bi bi-code-slash me-1"></i>HTML Code
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Rich Text Editor -->
+                        <div id="editor" style="height: 300px;"></div>
+                        
+                        <!-- Raw HTML Editor -->
+                        <textarea class="form-control d-none" id="htmlEditor" style="height: 300px; font-family: 'Courier New', monospace;" placeholder="Enter your HTML code here..."></textarea>
+                        
+                        <!-- Hidden field for form submission -->
+                        <textarea class="d-none" id="body" name="body" required></textarea>
+                        
+                        <div class="form-text">
+                            <strong>Rich Editor:</strong> Use formatting toolbar and click placeholder buttons. 
+                            <strong>HTML Mode:</strong> Edit raw HTML with links like <code>&lt;a href="https://example.com"&gt;Click here&lt;/a&gt;</code>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-primary" onclick="previewEmail()">
+                            <i class="bi bi-eye me-2"></i>Preview
+                        </button>
+                        <button type="submit" class="btn btn-danger" onclick="return confirmSend()">
+                            <i class="bi bi-send me-2"></i>Send Emails
+                        </button>
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left me-2"></i>Back
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <!-- CSV Info -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>CSV Information</h6>
+            </div>
+            <div class="card-body">
+                <p><strong>File:</strong> {{ filename }}</p>
+                <p><strong>Columns:</strong></p>
+                <ul class="list-unstyled">
+                    {% for column in columns %}
+                        <li><code>{{ column }}</code></li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- SMTP Configuration -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-server me-2"></i>SMTP Configuration</h6>
+            </div>
+            <div class="card-body">
+                <p><strong>Server:</strong> mailserv.cuhk.edu.hk</p>
+                <p><strong>Port:</strong> 25</p>
+                <p><strong>Connection:</strong> Campus network required</p>
+            </div>
+        </div>
+
+        <!-- Personalization Help -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-question-circle me-2"></i>Personalization</h6>
+            </div>
+            <div class="card-body">
+                <p>Click to insert placeholders:</p>
+                <div class="mb-3">
+                    {% for column in columns %}
+                        <button type="button" class="btn btn-sm btn-outline-primary me-1 mb-1" 
+                                onclick="insertPlaceholder('{{ column }}')">
+                            {{ '{' + column + '}' }}
+                        </button>
+                    {% endfor %}
+                </div>
+                
+                <div class="accordion" id="helpAccordion">
+                    <div class="accordion-item">
+                        <h6 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                    data-bs-target="#basicHelp">
+                                Basic Placeholders
+                            </button>
+                        </h6>
+                        <div id="basicHelp" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body">
+                                <div class="bg-light p-2 rounded">
+                                    <code>Dear {name},<br><br>Welcome to {company}!</code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="accordion-item">
+                        <h6 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                    data-bs-target="#htmlHelp">
+                                HTML Examples
+                            </button>
+                        </h6>
+                        <div id="htmlHelp" class="accordion-collapse collapse" data-bs-parent="#helpAccordion">
+                            <div class="accordion-body">
+                                <p class="small mb-2"><strong>Links:</strong></p>
+                                <div class="bg-light p-2 rounded mb-2">
+                                    <code>&lt;a href="https://example.com"&gt;Click here&lt;/a&gt;</code>
+                                </div>
+                                
+                                <p class="small mb-2"><strong>Personalized Links:</strong></p>
+                                <div class="bg-light p-2 rounded mb-2">
+                                    <code>&lt;a href="https://company.com/welcome?name={name}"&gt;Welcome {name}&lt;/a&gt;</code>
+                                </div>
+                                
+                                <p class="small mb-2"><strong>Formatting:</strong></p>
+                                <div class="bg-light p-2 rounded mb-2">
+                                    <code>&lt;strong&gt;Bold text&lt;/strong&gt;<br>
+                                    &lt;em&gt;Italic text&lt;/em&gt;<br>
+                                    &lt;span style="color: blue;"&gt;Blue text&lt;/span&gt;</code>
+                                </div>
+                                
+                                <p class="small mb-2"><strong>Images:</strong></p>
+                                <div class="bg-light p-2 rounded">
+                                    <code>&lt;img src="https://example.com/logo.png" alt="Logo" width="200"&gt;</code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Template Management -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-bookmark me-2"></i>Email Templates</h6>
+            </div>
+            <div class="card-body">
+                <!-- Save Template Section -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">Save Current Email as Template</label>
+                        <button type="button" class="btn btn-sm btn-success" onclick="saveTemplate()">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                    <input type="text" class="form-control form-control-sm" id="templateName" 
+                           placeholder="Enter template name...">
+                </div>
+
+                <!-- Load Templates Section -->
+                {% if templates %}
+                <div class="mb-3">
+                    <label class="form-label">Load Saved Template</label>
+                    <div class="list-group">
+                        {% for template in templates %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ template.name }}</strong>
+                                <br>
+                                <small class="text-muted">{{ template.subject[:50] }}{% if template.subject|length > 50 %}...{% endif %}</small>
+                                <br>
+                                <small class="text-muted">Updated: {{ template.updated_at[:10] }}</small>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-primary" 
+                                        onclick="loadTemplate('{{ template.filename }}')">
+                                    <i class="bi bi-upload"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-danger" 
+                                        onclick="deleteTemplate('{{ template.filename }}', '{{ template.name }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-muted text-center">
+                    <i class="bi bi-bookmark-plus"></i>
+                    <p class="mb-0">No saved templates yet</p>
+                </div>
+                {% endif %}
+
+                <div class="text-center">
+                    <a href="{{ url_for('templates_page') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-gear me-1"></i>Manage All Templates
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true" data-bs-backdrop="false" data-bs-keyboard="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewModalLabel">Email Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="previewContent">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Quill Rich Text Editor -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.2/quill.snow.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.2/quill.min.js"></script>
+
+<script>    // Wait for DOM to be fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Clean up any existing modal instances on page load
+        const existingModals = document.querySelectorAll('.modal');
+        existingModals.forEach(modal => {
+            const existingInstance = bootstrap.Modal.getInstance(modal);
+            if (existingInstance) {
+                existingInstance.dispose();
+            }
+            // Remove any existing backdrop elements
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+        });
+        
+        // Reset body classes
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+        
+        // Initialize Quill editor
+        var quill = new Quill('#editor', {
+            theme: 'snow',
+            placeholder: 'Compose your email content...',
+            modules: {
+                toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
+                    ['clean']
+                ]
+            }
+        });
+
+        // Get editor elements
+        const richEditor = document.getElementById('editor');
+        const htmlEditor = document.getElementById('htmlEditor');
+        const bodyField = document.getElementById('body');
+        const richModeBtn = document.getElementById('richMode');
+        const htmlModeBtn = document.getElementById('htmlMode');
+
+        // Ensure elements exist before adding event listeners
+        if (!richModeBtn || !htmlModeBtn) {
+            console.error('Editor mode buttons not found');
+            // return; // Allow script to continue for other functionalities
+        } else {
+            // Update hidden field when rich editor content changes
+            quill.on('text-change', function() {
+                if (richModeBtn.checked) {
+                    bodyField.value = quill.getSemanticHTML();
+                    htmlEditor.value = quill.getSemanticHTML(); // Sync HTML editor
+                }
+            });
+
+            // Update hidden field when HTML editor content changes
+            htmlEditor.addEventListener('input', function() {
+                if (htmlModeBtn.checked) {
+                    bodyField.value = htmlEditor.value;
+                }
+            });
+
+            // Handle editor mode switching
+            richModeBtn.addEventListener('change', function() {
+                if (this.checked) {
+                    switchToRichMode();
+                }
+            });
+
+            htmlModeBtn.addEventListener('change', function() {
+                if (this.checked) {
+                    switchToHtmlMode();
+                }
+            });
+        }
+
+
+        function switchToRichMode() {
+            // Update Quill with HTML content
+            const htmlContent = htmlEditor.value || '';
+            if (htmlContent.trim()) {
+                try {
+                    const delta = quill.clipboard.convert({ html: htmlContent });
+                    quill.setContents(delta);
+                } catch (error) {
+                    console.error('Error converting HTML to Quill:', error);
+                }
+            }
+            
+            // Show rich editor, hide HTML editor
+            richEditor.classList.remove('d-none');
+            htmlEditor.classList.add('d-none');
+            
+            // Update hidden field
+            bodyField.value = quill.getSemanticHTML();
+        }
+
+        function switchToHtmlMode() {
+            // Update HTML editor with Quill content
+            htmlEditor.value = quill.getSemanticHTML();
+            
+            // Hide rich editor, show HTML editor
+            richEditor.classList.add('d-none');
+            htmlEditor.classList.remove('d-none');
+            
+            // Update hidden field
+            bodyField.value = htmlEditor.value;
+        }
+
+        // Set default content with example
+        quill.setContents([
+            { insert: 'Dear ' },
+            { insert: '{name}', attributes: { bold: true, color: '#0066cc' } },
+            { insert: ',\n\n' },
+            { insert: 'Welcome to our email campaign!\n\n' },
+            { insert: 'For more information, ' },
+            { insert: 'click here', attributes: { link: 'https://example.com' } },
+            { insert: '.\n\n' },
+            { insert: 'Best regards,\n' },
+            { insert: '{sender_name}', attributes: { italic: true } }
+        ]);        // Initialize HTML editor with rich editor content
+        htmlEditor.value = quill.getSemanticHTML();        // Add modal cleanup event listener
+        const previewModal = document.getElementById('previewModal');
+        if (previewModal) {
+            previewModal.addEventListener('shown.bs.modal', function () {
+                // For modals without backdrop, ensure scrolling is enabled
+                if (this.getAttribute('data-bs-backdrop') === 'false') {
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                }
+            });
+            
+            previewModal.addEventListener('hidden.bs.modal', function () {
+                // Reset modal content when closed
+                const previewContent = document.getElementById('previewContent');
+                if (previewContent) {
+                    previewContent.innerHTML = `
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    `;
+                }
+                // Ensure body is properly reset
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+                
+                // Remove any leftover backdrops
+                const backdrops = document.querySelectorAll('.modal-backdrop');
+                backdrops.forEach(backdrop => backdrop.remove());
+            });
+        }
+
+        // Add global function to force close modals
+        window.forceCloseModal = function() {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                const instance = bootstrap.Modal.getInstance(modal);
+                if (instance) {
+                    instance.hide();
+                }
+            });
+            // Force cleanup
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+        };
+
+        // Helper function to escape HTML
+        function escapeHTML(str) {
+            if (typeof str !== 'string') return String(str); // Ensure it's a string
+            return str.replace(/[&<>"']/g, function (match) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[match];
+            });
+        }
+        window.escapeHTML = escapeHTML; // Make global if needed elsewhere, or keep local        // Make functions global for onclick handlers
+        window.previewEmail = function() {
+            const previewContent = document.getElementById('previewContent');
+            const emailForm = document.getElementById('emailForm');
+            const modalElement = document.getElementById('previewModal');
+
+            if (!emailForm || !previewContent || !modalElement) {
+                console.error('Required elements for preview are missing.');
+                alert('Error: Cannot initialize preview. Required elements are missing.');
+                return;
+            }
+
+            try {
+                // Ensure bodyField is updated from the correct editor
+                if (richModeBtn && richModeBtn.checked) {
+                    bodyField.value = quill.getSemanticHTML();
+                } else if (htmlEditor) {
+                    bodyField.value = htmlEditor.value;
+                }
+                
+                const formData = new FormData(emailForm);
+                
+                // Reset modal content
+                previewContent.innerHTML = `
+                    <div class="text-center" id="previewSpinnerModal">
+                        <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+                    </div>
+                    <div id="previewDataContainerModal" class="d-none">
+                        <div class="mb-3">
+                            <strong>Subject:</strong>
+                            <div class="border p-2 bg-light" id="previewSubjectModal"></div>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Body:</strong>
+                            <iframe id="previewBodyFrameModal" class="border p-2" style="width: 100%; height: 300px; background-color: white;"></iframe>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Raw HTML:</strong>
+                            <pre id="previewRawHtmlModal" class="border p-2 bg-light" style="font-family: monospace; font-size: 0.85em; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>
+                        </div>
+                        <div id="previewSampleDataContainerModal" class="mb-3 d-none">
+                            <strong>Sample Data (first row):</strong>
+                            <div class="border p-2 bg-light" id="previewSampleDataModal"></div>
+                        </div>
+                    </div>
+                    <div id="previewErrorContainerModal" class="d-none alert alert-danger"></div>
+                `;                // Get modal instance and show it
+                let previewModalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (previewModalInstance) {
+                    // Dispose of existing instance to prevent conflicts
+                    previewModalInstance.dispose();
+                }
+                  // Create new modal instance without backdrop
+                previewModalInstance = new bootstrap.Modal(modalElement, {
+                    backdrop: false,
+                    keyboard: true,
+                    focus: true
+                });
+                
+                // Show modal and ensure body can still scroll
+                previewModalInstance.show();
+                
+                // Override Bootstrap's default behavior for no-backdrop modals
+                setTimeout(() => {
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                }, 10);
+
+                // Get elements after they are created
+                const previewSpinner = document.getElementById('previewSpinnerModal');
+                const previewDataContainer = document.getElementById('previewDataContainerModal');
+                const previewErrorContainer = document.getElementById('previewErrorContainerModal');
+                const previewSubject = document.getElementById('previewSubjectModal');
+                const previewBodyFrame = document.getElementById('previewBodyFrameModal');
+                const previewRawHtml = document.getElementById('previewRawHtmlModal');
+                const previewSampleDataContainer = document.getElementById('previewSampleDataContainerModal');
+                const previewSampleData = document.getElementById('previewSampleDataModal');
+
+                fetch('{{ url_for("preview_email") }}', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().catch(() => null).then(errorData => {
+                            const errorMessage = errorData?.error || response.statusText || `HTTP error! status: ${response.status}`;
+                            throw new Error(errorMessage);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (previewSpinner) previewSpinner.classList.add('d-none');
+                    if (data.success) {
+                        if (previewSubject) previewSubject.textContent = data.subject || 'No subject';
+                        
+                        if (previewBodyFrame) {
+                            previewBodyFrame.setAttribute('sandbox', 'allow-same-origin');
+                            previewBodyFrame.srcdoc = data.body || '<p>No content</p>';
+                        }
+                        
+                        if (previewRawHtml) previewRawHtml.textContent = data.body || 'No content';
+                        
+                        if (data.sample_data && Object.keys(data.sample_data).length > 0) {
+                            const sampleContent = Object.entries(data.sample_data)
+                                .map(([key, value]) => `<strong>${escapeHTML(String(key))}:</strong> ${escapeHTML(String(value !== null && value !== undefined ? value : 'N/A'))}`)
+                                .join('<br>');
+                            if (previewSampleData) previewSampleData.innerHTML = sampleContent;
+                            if (previewSampleDataContainer) previewSampleDataContainer.classList.remove('d-none');
+                        } else {
+                            if (previewSampleDataContainer) previewSampleDataContainer.classList.add('d-none');
+                        }
+                        if (previewDataContainer) previewDataContainer.classList.remove('d-none');
+                        if (previewErrorContainer) previewErrorContainer.classList.add('d-none');
+                    } else {
+                        if (previewErrorContainer) {
+                            previewErrorContainer.innerHTML = `<strong>Error:</strong> ${escapeHTML(data.error || 'Unknown error occurred')}`;
+                            previewErrorContainer.classList.remove('d-none');
+                        }
+                        if (previewDataContainer) previewDataContainer.classList.add('d-none');
+                    }
+                })
+                .catch(error => {
+                    console.error('Preview error:', error);
+                    if (previewSpinner) previewSpinner.classList.add('d-none');
+                    if (previewErrorContainer) {
+                        previewErrorContainer.innerHTML = `
+                            <strong>Error loading preview:</strong><br>
+                            ${escapeHTML(error.message || 'Network or server error occurred')}
+                        `;
+                        previewErrorContainer.classList.remove('d-none');
+                    }
+                    if (previewDataContainer) previewDataContainer.classList.add('d-none');
+                });
+                
+            } catch (error) {
+                console.error('Preview function error:', error);
+                alert('Error opening preview: ' + error.message);
+                // Ensure modal is properly closed in case of error
+                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+        };
+
+        window.confirmSend = function() {
+            return confirm('Are you sure you want to send emails? This action cannot be undone.');
+        };
+
+        // Add placeholder insertion functionality
+        window.insertPlaceholder = function(columnName) {
+            const range = quill.getSelection();
+            if (range) {
+                if (richModeBtn.checked) {
+                    quill.insertText(range.index, `{${columnName}}`, { 'bold': true, 'color': '#0066cc' });
+                } else {
+                    const placeholder = `{${columnName}}`;
+                    htmlEditor.value = htmlEditor.value.substring(0, htmlEditor.selectionStart) + 
+                                       placeholder + 
+                                       htmlEditor.value.substring(htmlEditor.selectionEnd);
+                    bodyField.value = htmlEditor.value; // Update hidden field
+                }
+            } else {
+                if (richModeBtn.checked) {
+                    quill.insertText(quill.getLength(), `{${columnName}}`, { 'bold': true, 'color': '#0066cc' });
+                } else {
+                    const placeholder = `{${columnName}}`;
+                    htmlEditor.value += placeholder;
+                    bodyField.value = htmlEditor.value; // Update hidden field
+                }
+            }
+        };
+
+        // Template Management Functions
+        window.saveTemplate = function() {
+            try {
+                const templateName = document.getElementById('templateName').value.trim();
+                if (!templateName) {
+                    alert('Please enter a template name');
+                    return;
+                }
+
+                const subject = document.getElementById('subject').value;
+                const senderName = document.getElementById('sender_name').value;
+
+                // Get body content based on current editor mode
+                let body;
+                if (richModeBtn && richModeBtn.checked) {
+                    body = quill.getSemanticHTML();
+                } else {
+                    body = htmlEditor.value;
+                }
+
+                if (!subject || !body) {
+                    alert('Please fill in subject and body before saving template');
+                    return;
+                }
+
+                // Save template via AJAX
+                fetch('/save_template', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        'template_name': templateName,
+                        'subject': subject,
+                        'body': body,
+                        'sender_name': senderName
+                    })
+                })
+                .then(response => response.json())                .then(data => {
+                    if (data.success) {
+                        alert('Template saved successfully!');
+                        document.getElementById('templateName').value = '';
+                        // Don't reload the page, just clear the template name field
+                        // The form content should remain unchanged
+                    } else {
+                        alert('Error saving template: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error saving template: ' + error.message);
+                });
+            } catch (error) {
+                console.error('Save template error:', error);
+                alert('Error saving template: ' + error.message);
+            }
+        };
+
+        window.loadTemplate = function(filename) {
+            fetch(`/load_template/${filename}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const template = data.template;
+                        
+                        // Load template data into form
+                        document.getElementById('subject').value = template.subject || '';
+                        if (template.sender_name) {
+                            document.getElementById('sender_name').value = template.sender_name;
+                        }
+
+                        // Load body content
+                        if (richModeBtn && richModeBtn.checked) {
+                            try {
+                                const delta = quill.clipboard.convert({ html: template.body });
+                                quill.setContents(delta);
+                            } catch (error) {
+                                console.error('Error loading template into Quill:', error);
+                                quill.setText(template.body || '');
+                            }
+                        } else {
+                            htmlEditor.value = template.body || '';
+                        }
+                        
+                        // Update hidden field
+                        bodyField.value = template.body || '';
+                        
+                        alert('Template loaded successfully!');
+                    } else {
+                        alert('Error loading template: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error loading template: ' + error.message);
+                });
+        };
+
+        window.deleteTemplate = function(filename, templateName) {
+            if (confirm(`Are you sure you want to delete the template \"${templateName}\"?`)) {
+                fetch(`/delete_template/${filename}`, {
+                    method: 'POST'
+                })
+                .then(response => response.json())                .then(data => {
+                    if (data.success) {
+                        alert('Template deleted successfully!');
+                        // Don't reload the page, just remove the template from the list
+                        // Find and remove the template element from the DOM
+                        const templateElements = document.querySelectorAll('.list-group-item');
+                        templateElements.forEach(element => {
+                            const loadButton = element.querySelector(`button[onclick="loadTemplate('${filename}')"]`);
+                            if (loadButton) {
+                                element.remove();
+                            }
+                        });
+                    } else {
+                        alert('Error deleting template: ' + (data.message || data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error deleting template: ' + error.message);
+                });
+            }
+        };
+    });
+</script>
+{% endblock %}

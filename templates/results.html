@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header {% if failure_count == 0 %}bg-success{% else %}bg-warning{% endif %} text-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-check-circle me-2"></i>Email Campaign Results
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="row text-center mb-4">
+                    <div class="col-md-6">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <h2 class="display-4">{{ success_count }}</h2>
+                                <p class="mb-0">Emails Sent Successfully</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card {% if failure_count > 0 %}bg-danger{% else %}bg-secondary{% endif %} text-white">
+                            <div class="card-body">
+                                <h2 class="display-4">{{ failure_count }}</h2>
+                                <p class="mb-0">Failed Emails</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if failure_count > 0 %}
+                <div class="alert alert-warning">
+                    <h5><i class="bi bi-exclamation-triangle me-2"></i>Failed Emails</h5>
+                    <div class="mt-3">
+                        {% for failure in failures %}
+                            <div class="mb-2 p-2 bg-light rounded">
+                                <small class="text-muted">{{ failure }}</small>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}                <div class="alert alert-info">
+                    <h6><i class="bi bi-info-circle me-2"></i>Campaign Summary</h6>
+                    <ul class="mb-0">
+                        <li>Campaign ID: {{ campaign_id }}</li>
+                        <li>Total emails processed: {{ success_count + failure_count }}</li>
+                        <li>Success rate: {{ "%.1f"|format((success_count / (success_count + failure_count) * 100) if (success_count + failure_count) > 0 else 0) }}%</li>
+                        <li>SMTP Server: mailserv.cuhk.edu.hk:25</li>
+                    </ul>
+                </div>
+
+                <div class="d-grid gap-2 d-md-flex justify-content-md-between">
+                    <a href="{{ url_for('download_log', campaign_id=campaign_id) }}" class="btn btn-success">
+                        <i class="bi bi-download me-2"></i>Download Email Log (CSV)
+                    </a>
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="bi bi-plus-circle me-2"></i>Send Another Campaign
+                    </a>
+                </div>
+            </div>
+        </div>        {% if success_count > 0 %}
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightbulb me-2"></i>Tips for Future Campaigns</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li><i class="bi bi-check text-success me-2"></i>Always test with a small group first</li>
+                    <li><i class="bi bi-check text-success me-2"></i>Verify email addresses in your CSV before sending</li>
+                    <li><i class="bi bi-check text-success me-2"></i>Use personalization to improve engagement</li>
+                    <li><i class="bi bi-check text-success me-2"></i>Monitor bounce rates and unsubscribe requests</li>
+                    <li><i class="bi bi-download text-info me-2"></i>Download the email log for record keeping and analysis</li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

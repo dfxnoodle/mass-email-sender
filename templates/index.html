@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-upload me-2"></i>Upload CSV File</h4>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Upload a CSV file containing email addresses and recipient data. The CSV file must contain at least one column with 'email' in the name.</p>
+                
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                    <div class="upload-area mb-3" id="uploadArea">
+                        <i class="bi bi-cloud-upload display-4 text-muted mb-3"></i>
+                        <h5>Choose CSV File</h5>
+                        <p class="text-muted">Drag and drop your CSV file here or click to browse</p>
+                        <input type="file" class="form-control d-none" id="csvFile" name="file" accept=".csv" required>
+                        <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('csvFile').click()">
+                            <i class="bi bi-folder2-open me-2"></i>Browse Files
+                        </button>
+                    </div>
+                    
+                    <div id="fileInfo" class="d-none">
+                        <div class="alert alert-info">
+                            <i class="bi bi-file-earmark-text me-2"></i>
+                            <span id="fileName"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFile()">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>
+                            <i class="bi bi-upload me-2"></i>Upload and Continue
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>CSV Format Requirements</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Must contain at least one column with 'email' in the name</li>
+                    <li><i class="bi bi-check-circle text-success me-2"></i>First row should contain column headers</li>
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Maximum file size: 16MB</li>
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Supported format: .csv files only</li>
+                </ul>
+                
+                <h6 class="mt-3">Example CSV format:</h6>
+                <div class="bg-light p-3 rounded">
+                    <code>
+                        name,email,company<br>
+                        John Doe,john@example.com,ABC Corp<br>
+                        Jane Smith,jane@example.com,XYZ Ltd
+                    </code>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('csvFile');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+
+    // Drag and drop functionality
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            fileInput.files = files;
+            handleFileSelect();
+        }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', handleFileSelect);
+
+    function handleFileSelect() {
+        const file = fileInput.files[0];
+        if (file) {
+            if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
+                fileName.textContent = file.name;
+                fileInfo.classList.remove('d-none');
+                uploadBtn.disabled = false;
+            } else {
+                alert('Please select a CSV file.');
+                clearFile();
+            }
+        }
+    }
+
+    function clearFile() {
+        fileInput.value = '';
+        fileInfo.classList.add('d-none');
+        uploadBtn.disabled = true;
+    }
+</script>
+{% endblock %}
