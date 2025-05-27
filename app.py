@@ -64,12 +64,40 @@ if AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT:
             api_version=AZURE_OPENAI_API_VERSION,
             azure_endpoint=AZURE_OPENAI_ENDPOINT
         )
-        logger.info("Azure OpenAI client initialized successfully")
+        logger.info(f"Azure OpenAI client initialized successfully with endpoint: {AZURE_OPENAI_ENDPOINT}")
+        logger.info(f"Using deployment: {AZURE_OPENAI_DEPLOYMENT_NAME}")
+        logger.info(f"API Version: {AZURE_OPENAI_API_VERSION}")
     except Exception as e:
         logger.error(f"Failed to initialize Azure OpenAI client: {str(e)}")
         azure_openai_client = None
 else:
     logger.warning("Azure OpenAI credentials not found. AI features will be disabled.")
+
+
+def test_azure_openai_connection():
+    """Test Azure OpenAI connection and deployment availability."""
+    if not azure_openai_client:
+        return False, "Azure OpenAI client not initialized"
+    
+    try:
+        # Test with a simple completion call
+        completion = azure_openai_client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=10,
+            temperature=0.1
+        )
+        return True, "Connection successful"
+    except Exception as e:
+        error_msg = str(e)
+        if "404" in error_msg:
+            return False, f"Deployment '{AZURE_OPENAI_DEPLOYMENT_NAME}' not found. Please check your deployment name in Azure OpenAI Studio."
+        elif "401" in error_msg:
+            return False, "Authentication failed. Please check your API key."
+        elif "403" in error_msg:
+            return False, "Access forbidden. Please check your permissions."
+        else:
+            return False, f"Connection failed: {error_msg}"
 
 
 def allowed_file(filename):
@@ -251,7 +279,6 @@ class EmailImprovementResponse(BaseModel):
 def improve_email_with_ai(subject: str, body: str, context: str = "") -> dict:
     """
     Use Azure OpenAI to improve email content and provide spam-proofing suggestions.
-    Utilizes structured output (Pydantic model) for reliable JSON parsing using .beta.chat.completions.parse().
     
     Args:
         subject: Email subject line
@@ -268,6 +295,14 @@ def improve_email_with_ai(subject: str, body: str, context: str = "") -> dict:
             'error': 'AI service is not available. Please check Azure OpenAI configuration.'
         }
     
+    # Test connection first
+    connection_ok, connection_msg = test_azure_openai_connection()
+    if not connection_ok:
+        return {
+            'success': False,
+            'error': f'Azure OpenAI connection failed: {connection_msg}'
+        }
+    
     prompt = f"""
 Analyze and improve the following email.
 Preserve placeholders like {{name}}.
@@ -281,6 +316,8 @@ Additional Context: {context if context else "General mass email campaign"}
 """
 
     try:
+        logger.info(f"Making Azure OpenAI API call to deployment: {AZURE_OPENAI_DEPLOYMENT_NAME}")
+        
         # Use regular completions.create instead of beta.parse
         completion = azure_openai_client.chat.completions.create(
             model=AZURE_OPENAI_DEPLOYMENT_NAME,
@@ -333,10 +370,24 @@ Additional Context: {context if context else "General mass email campaign"}
             }
 
     except Exception as e:
-        logger.error(f"Error calling Azure OpenAI API: {str(e)}", exc_info=True)
+        error_msg = str(e)
+        logger.error(f"Error calling Azure OpenAI API: {error_msg}", exc_info=True)
+        
+        # Provide more specific error messages
+        if "404" in error_msg:
+            detailed_error = f"Deployment '{AZURE_OPENAI_DEPLOYMENT_NAME}' not found in Azure OpenAI resource. Please verify the deployment name in Azure OpenAI Studio."
+        elif "401" in error_msg:
+            detailed_error = "Authentication failed. Please check your API key in the .env file."
+        elif "403" in error_msg:
+            detailed_error = "Access forbidden. Please check your Azure OpenAI resource permissions."
+        elif "429" in error_msg:
+            detailed_error = "Rate limit exceeded. Please try again later."
+        else:
+            detailed_error = f"API call failed: {error_msg}"
+        
         return {
             'success': False,
-            'error': f'Failed to get AI suggestions: {str(e)}'
+            'error': detailed_error
         }
 
 
@@ -655,6 +706,28 @@ def improve_email_route():
             'success': False,
             'error': f'An error occurred while improving the email: {str(e)}'
         })
+
+
+@app.route('/debug/azure_openai')
+def debug_azure_openai():
+    """Debug route to test Azure OpenAI configuration."""
+    debug_info = {
+        'client_initialized': azure_openai_client is not None,
+        'api_key_set': bool(AZURE_OPENAI_API_KEY),
+        'endpoint': AZURE_OPENAI_ENDPOINT,
+        'api_version': AZURE_OPENAI_API_VERSION,
+        'deployment_name': AZURE_OPENAI_DEPLOYMENT_NAME,
+        'connection_test': None
+    }
+    
+    if azure_openai_client:
+        success, message = test_azure_openai_connection()
+        debug_info['connection_test'] = {
+            'success': success,
+            'message': message
+        }
+    
+    return jsonify(debug_info)
 
 
 if __name__ == '__main__':
