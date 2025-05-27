@@ -80,3 +80,4 @@ uploads/*.xls*
 *.crt
 config.py
 secrets.py
+.env

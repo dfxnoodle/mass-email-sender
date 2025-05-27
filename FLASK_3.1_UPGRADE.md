@@ -6,8 +6,8 @@ This project has been successfully upgraded from Flask 2.3.3 to Flask 3.1.0.
 
 ### Dependencies Updated
 
-- **Flask**: 2.3.3 → 3.1.0
-- **Werkzeug**: 2.3.7 → 3.1.0
+- **Flask**: 2.3.3 → 3.1.1
+- **Werkzeug**: 2.3.7 → 3.1.3
 
 ### Code Compatibility
 
