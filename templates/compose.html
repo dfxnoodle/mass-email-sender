@@ -2,12 +2,11 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-8">
-        <div class="card">
+    <div class="col-md-8">        <div class="card">
             <div class="card-header bg-success text-white">
                 <h4 class="mb-0"><i class="bi bi-envelope-plus me-2"></i>Compose Email</h4>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="min-height: 700px; padding: 2rem;">
                 <form action="{{ url_for('send_emails') }}" method="post" id="emailForm">
                     <input type="hidden" name="filepath" value="{{ filepath }}">
                     
@@ -60,12 +59,11 @@
                                 </label>
                             </div>
                         </div>
-                        
-                        <!-- Rich Text Editor -->
-                        <div id="editor" style="height: 300px;"></div>
+                          <!-- Rich Text Editor -->
+                        <div id="editor" style="height: 450px;"></div>
                         
                         <!-- Raw HTML Editor -->
-                        <textarea class="form-control d-none" id="htmlEditor" style="height: 300px; font-family: 'Courier New', monospace;" placeholder="Enter your HTML code here..."></textarea>
+                        <textarea class="form-control d-none" id="htmlEditor" style="height: 450px; font-family: 'Courier New', monospace;" placeholder="Enter your HTML code here..."></textarea>
                         
                         <!-- Hidden field for form submission -->
                         <textarea class="d-none" id="body" name="body" required></textarea>
@@ -119,6 +117,49 @@
                 <p><strong>Server:</strong> mailserv.cuhk.edu.hk</p>
                 <p><strong>Port:</strong> 25</p>
                 <p><strong>Connection:</strong> Campus network required</p>
+            </div>
+        </div>
+
+        <!-- AI Email Improvement -->
+        <div class="card mb-3">
+            <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <h6 class="mb-0 text-white">
+                    <i class="bi bi-robot me-2"></i>AI Email Assistant
+                    <span class="badge bg-light text-dark ms-2">NEW</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">
+                    Get AI-powered suggestions to improve your email content and avoid spam filters.
+                </p>
+                
+                <!-- Context Input -->
+                <div class="mb-3">
+                    <label for="aiContext" class="form-label small">Campaign Context (Optional)</label>
+                    <textarea class="form-control form-control-sm" id="aiContext" rows="2" 
+                              placeholder="e.g., Academic survey invitation, Event announcement..."></textarea>
+                    <div class="form-text">Help AI understand your email purpose for better suggestions</div>
+                </div>
+
+                <!-- AI Action Buttons -->
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="improveEmailWithAI()">
+                        <i class="bi bi-magic me-1"></i>Improve Email Content
+                    </button>
+                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="checkSpamScore()">
+                        <i class="bi bi-shield-check me-1"></i>Check Spam Risk
+                    </button>
+                </div>
+
+                <!-- AI Status -->
+                <div id="aiStatus" class="mt-2 d-none">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <small class="text-muted">AI is analyzing your email...</small>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -250,6 +291,31 @@
                         <i class="bi bi-gear me-1"></i>Manage All Templates
                     </a>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Improvement Modal -->
+<div class="modal fade" id="aiImprovementModal" tabindex="-1" aria-labelledby="aiImprovementModalLabel" aria-hidden="true" data-bs-backdrop="false" data-bs-keyboard="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-gradient text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <h5 class="modal-title" id="aiImprovementModalLabel">
+                    <i class="bi bi-robot me-2"></i>AI Email Improvement Suggestions
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div id="aiImprovementContent">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="applyAiSuggestions" onclick="applyAiSuggestions()">
+                    <i class="bi bi-check-circle me-1"></i>Apply Suggestions
+                </button>
             </div>
         </div>
     </div>
@@ -427,6 +493,29 @@
                         </div>
                     `;
                 }
+                // Ensure body is properly reset
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+                
+                // Remove any leftover backdrops                const backdrops = document.querySelectorAll('.modal-backdrop');
+                backdrops.forEach(backdrop => backdrop.remove());
+            });
+        }
+
+        // Add AI improvement modal cleanup event listeners
+        const aiModal = document.getElementById('aiImprovementModal');
+        if (aiModal) {
+            aiModal.addEventListener('shown.bs.modal', function () {
+                // For modals without backdrop, ensure scrolling is enabled
+                if (this.getAttribute('data-bs-backdrop') === 'false') {
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                }
+            });
+            
+            aiModal.addEventListener('hidden.bs.modal', function () {
                 // Ensure body is properly reset
                 document.body.classList.remove('modal-open');
                 document.body.style.overflow = '';
@@ -643,6 +732,354 @@
             }
         };
 
+        // AI Email Improvement Functions
+        let currentAiSuggestions = null;
+
+        window.improveEmailWithAI = function() {
+            const subject = document.getElementById('subject').value.trim();
+            const context = document.getElementById('aiContext').value.trim();
+            
+            // Get body content based on current editor mode
+            let body;
+            if (richModeBtn && richModeBtn.checked) {
+                body = quill.getSemanticHTML();
+            } else {
+                body = htmlEditor.value;
+            }
+
+            if (!subject || !body.trim()) {
+                alert('Please fill in both subject and body before requesting AI improvements.');
+                return;
+            }
+
+            showAiStatus(true);
+            
+            // Prepare form data
+            const formData = new URLSearchParams({
+                'subject': subject,
+                'body': body,
+                'context': context || 'General mass email campaign'
+            });
+
+            fetch('/improve_email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData
+            })
+            .then(response => response.json())            .then(data => {
+                showAiStatus(false);
+                if (data.success) {
+                    currentAiSuggestions = data;
+                    displayAiSuggestions(data);
+                } else {
+                    console.error('AI improvement failed:', data);
+                    let errorMessage = 'AI improvement failed: ';
+                    if (data.error) {
+                        errorMessage += data.error;
+                    } else {
+                        errorMessage += 'Unknown error occurred';
+                    }
+                    
+                    // If there's a raw response, show it for debugging
+                    if (data.raw_response) {
+                        console.log('Raw AI response:', data.raw_response);
+                        errorMessage += '\n\nRaw response logged to console for debugging.';
+                    }
+                    
+                    alert(errorMessage);
+                }
+            })
+            .catch(error => {
+                showAiStatus(false);
+                console.error('AI improvement error:', error);
+                alert('Error connecting to AI service: ' + error.message);
+            });
+        };
+
+        window.checkSpamScore = function() {
+            const subject = document.getElementById('subject').value.trim();
+            const context = document.getElementById('aiContext').value.trim() + ' - Focus on spam analysis';
+            
+            // Get body content based on current editor mode
+            let body;
+            if (richModeBtn && richModeBtn.checked) {
+                body = quill.getSemanticHTML();
+            } else {
+                body = htmlEditor.value;
+            }
+
+            if (!subject || !body.trim()) {
+                alert('Please fill in both subject and body before checking spam risk.');
+                return;
+            }
+
+            showAiStatus(true);
+            
+            // Prepare form data
+            const formData = new URLSearchParams({
+                'subject': subject,
+                'body': body,
+                'context': context || 'Spam risk analysis for mass email campaign'
+            });
+
+            fetch('/improve_email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData
+            })
+            .then(response => response.json())            .then(data => {
+                showAiStatus(false);
+                if (data.success) {
+                    currentAiSuggestions = data;
+                    displaySpamAnalysis(data);
+                } else {
+                    console.error('Spam analysis failed:', data);
+                    let errorMessage = 'Spam analysis failed: ';
+                    if (data.error) {
+                        errorMessage += data.error;
+                    } else {
+                        errorMessage += 'Unknown error occurred';
+                    }
+                    
+                    // If there's a raw response, show it for debugging
+                    if (data.raw_response) {
+                        console.log('Raw AI response:', data.raw_response);
+                        errorMessage += '\n\nRaw response logged to console for debugging.';
+                    }
+                    
+                    alert(errorMessage);
+                }
+            })
+            .catch(error => {
+                showAiStatus(false);
+                console.error('Spam analysis error:', error);
+                alert('Error connecting to AI service: ' + error.message);
+            });
+        };
+
+        function showAiStatus(show) {
+            const aiStatus = document.getElementById('aiStatus');
+            if (aiStatus) {
+                if (show) {
+                    aiStatus.classList.remove('d-none');
+                } else {
+                    aiStatus.classList.add('d-none');
+                }
+            }
+        }        function displayAiSuggestions(data) {
+            const modalElement = document.getElementById('aiImprovementModal');
+            const content = document.getElementById('aiImprovementContent');
+            
+            // Dispose of existing modal instance if any
+            let modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) {
+                modal.dispose();
+            }
+            
+            // Create new modal instance without backdrop
+            modal = new bootstrap.Modal(modalElement, {
+                backdrop: false,
+                keyboard: true,
+                focus: true
+            });
+            
+            content.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-primary mb-3">
+                            <i class="bi bi-lightbulb me-1"></i>Improved Content
+                        </h6>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Enhanced Subject:</label>
+                            <div class="border rounded p-3 bg-light">
+                                <div id="aiImprovedSubject">${escapeHTML(data.improved_subject || 'No improvement suggested')}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Enhanced Body:</label>
+                            <div class="border rounded p-3 bg-light" style="max-height: 300px; overflow-y: auto;">
+                                <div id="aiImprovedBody">${data.improved_body || 'No improvement suggested'}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6 class="text-warning mb-3">
+                            <i class="bi bi-shield-exclamation me-1"></i>Spam Prevention
+                        </h6>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Spam Risk Assessment:</label>
+                            <div class="alert alert-info">
+                                ${escapeHTML(data.spam_score_assessment || 'No assessment available')}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Spam Prevention Tips:</label>
+                            <ul class="list-group">
+                                ${(data.spam_suggestions || []).map(tip => 
+                                    `<li class="list-group-item">${escapeHTML(tip)}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Deliverability Tips:</label>
+                            <ul class="list-group">
+                                ${(data.deliverability_tips || []).map(tip => 
+                                    `<li class="list-group-item">${escapeHTML(tip)}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">General Improvements:</label>
+                            <ul class="list-group">
+                                ${(data.general_improvements || []).map(improvement => 
+                                    `<li class="list-group-item">${escapeHTML(improvement)}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>            `;
+            
+            modal.show();
+            
+            // Override Bootstrap's default behavior for no-backdrop modals
+            setTimeout(() => {
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';            }, 10);
+        }
+
+        function displaySpamAnalysis(data) {
+            const modalElement = document.getElementById('aiImprovementModal');
+            const content = document.getElementById('aiImprovementContent');
+            
+            // Dispose of existing modal instance if any
+            let modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) {
+                modal.dispose();
+            }
+            
+            // Create new modal instance without backdrop
+            modal = new bootstrap.Modal(modalElement, {
+                backdrop: false,
+                keyboard: true,
+                focus: true
+            });
+            
+            content.innerHTML = `
+                <div class="text-center mb-4">
+                    <h4 class="text-warning">
+                        <i class="bi bi-shield-check me-2"></i>Spam Risk Analysis
+                    </h4>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-8 mx-auto">
+                        <div class="mb-4">
+                            <div class="card border-warning">
+                                <div class="card-header bg-warning bg-opacity-10">
+                                    <h6 class="mb-0">Risk Assessment</h6>
+                                </div>
+                                <div class="card-body">
+                                    <p class="mb-0">${escapeHTML(data.spam_score_assessment || 'No assessment available')}</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6 class="text-danger mb-3">Critical Spam Prevention Tips</h6>
+                            <div class="list-group">
+                                ${(data.spam_suggestions || []).map(tip => 
+                                    `<div class="list-group-item">
+                                        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+                                        ${escapeHTML(tip)}
+                                    </div>`
+                                ).join('')}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6 class="text-success mb-3">Deliverability Best Practices</h6>
+                            <div class="list-group">
+                                ${(data.deliverability_tips || []).map(tip => 
+                                    `<div class="list-group-item">
+                                        <i class="bi bi-check-circle text-success me-2"></i>
+                                        ${escapeHTML(tip)}
+                                    </div>`
+                ).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Hide the apply button for spam analysis
+            document.getElementById('applyAiSuggestions').style.display = 'none';
+            
+            modal.show();
+            
+            // Override Bootstrap's default behavior for no-backdrop modals
+            setTimeout(() => {
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+            }, 10);
+        }
+
+        window.applyAiSuggestions = function() {
+            if (!currentAiSuggestions) {
+                alert('No AI suggestions available to apply.');
+                return;
+            }
+
+            if (confirm('Apply AI improvements to your email? This will replace your current content.')) {
+                // Apply improved subject
+                if (currentAiSuggestions.improved_subject) {
+                    document.getElementById('subject').value = currentAiSuggestions.improved_subject;
+                }
+
+                // Apply improved body
+                if (currentAiSuggestions.improved_body) {
+                    if (richModeBtn && richModeBtn.checked) {
+                        try {
+                            const delta = quill.clipboard.convert({ html: currentAiSuggestions.improved_body });
+                            quill.setContents(delta);
+                        } catch (error) {
+                            console.error('Error applying AI content to Quill:', error);
+                            quill.root.innerHTML = currentAiSuggestions.improved_body;
+                        }
+                    } else {
+                        htmlEditor.value = currentAiSuggestions.improved_body;
+                    }
+                    bodyField.value = currentAiSuggestions.improved_body;
+                }
+
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('aiImprovementModal'));
+                if (modal) {
+                    modal.hide();
+                }
+
+                alert('AI improvements have been applied to your email!');
+            }
+        };
+
+        // Make sure apply button is visible when showing suggestions (not spam analysis)
+        document.getElementById('aiImprovementModal').addEventListener('shown.bs.modal', function () {
+            const applyButton = document.getElementById('applyAiSuggestions');
+            if (applyButton && currentAiSuggestions) {
+                applyButton.style.display = 'inline-block';
+            }        });
         // Template Management Functions
         window.saveTemplate = function() {
             try {
@@ -855,5 +1292,6 @@
             }
         };
     });
+        
 </script>
 {% endblock %}

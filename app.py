@@ -16,9 +16,16 @@ from flask import Flask, render_template, request, flash, redirect, url_for, jso
 from werkzeug.utils import secure_filename
 import logging
 import io
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+from pydantic import BaseModel
+from typing import List, Dict
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this'  # Change this in production
+app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')  # Use env variable
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -29,6 +36,12 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 # CUHK Email Server Configuration
 SMTP_SERVER = 'mailserv.cuhk.edu.hk'
 SMTP_PORT = 25
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY')
+AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
+AZURE_OPENAI_API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-11-20-preview')
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-4o')
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['TEMPLATES_FOLDER'] = TEMPLATES_FOLDER
@@ -41,6 +54,22 @@ os.makedirs(TEMPLATES_FOLDER, exist_ok=True)
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize Azure OpenAI client
+azure_openai_client = None
+if AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT:
+    try:
+        azure_openai_client = AzureOpenAI(
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_OPENAI_API_VERSION,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT
+        )
+        logger.info("Azure OpenAI client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Azure OpenAI client: {str(e)}")
+        azure_openai_client = None
+else:
+    logger.warning("Azure OpenAI credentials not found. AI features will be disabled.")
 
 
 def allowed_file(filename):
@@ -209,6 +238,109 @@ def delete_template(filename):
         return False, f"Error deleting template: {str(e)}"
 
 
+# Pydantic models for structured AI response
+class EmailImprovementResponse(BaseModel):
+    improved_subject: str
+    improved_body: str
+    spam_suggestions: List[str]
+    general_improvements: List[str]
+    spam_score_assessment: str
+    deliverability_tips: List[str]
+
+
+def improve_email_with_ai(subject: str, body: str, context: str = "") -> dict:
+    """
+    Use Azure OpenAI to improve email content and provide spam-proofing suggestions.
+    Utilizes structured output (Pydantic model) for reliable JSON parsing using .beta.chat.completions.parse().
+    
+    Args:
+        subject: Email subject line
+        body: Email body content
+        context: Additional context about the email campaign
+    
+    Returns:
+        dict: Contains improved_subject, improved_body, spam_suggestions, general_improvements,
+              spam_score_assessment, and deliverability_tips.
+    """
+    if not azure_openai_client:
+        return {
+            'success': False,
+            'error': 'AI service is not available. Please check Azure OpenAI configuration.'
+        }
+    
+    prompt = f"""
+Analyze and improve the following email.
+Preserve placeholders like {{name}}.
+Focus on content quality, spam-proofing, and deliverability.
+Be very concise in your suggestions.
+
+Original Email:
+Subject: {subject}
+Body: {body}
+Additional Context: {context if context else "General mass email campaign"}
+"""
+
+    try:
+        # Use regular completions.create instead of beta.parse
+        completion = azure_openai_client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert email marketing consultant. Provide concise improvements for the email. Keep your response short and focused. Return a valid JSON object with these keys: improved_subject, improved_body, spam_suggestions (max 3 items), general_improvements (max 3 items), spam_score_assessment (one sentence), and deliverability_tips (max 2 items)."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.3 
+        )
+
+        # Parse the JSON response manually
+        ai_response_content = completion.choices[0].message.content
+        logger.info(f"Raw AI response content: {ai_response_content[:300]}...")
+
+        try:
+            # Parse the JSON string
+            parsed_json = json.loads(ai_response_content)
+            
+            # Validate that the response contains all required fields
+            required_fields = ["improved_subject", "improved_body", "spam_suggestions", 
+                              "general_improvements", "spam_score_assessment", "deliverability_tips"]
+            
+            missing_fields = [field for field in required_fields if field not in parsed_json]
+            
+            if missing_fields:
+                return {
+                    'success': False,
+                    'error': f"AI response missing required fields: {', '.join(missing_fields)}",
+                    'raw_response': ai_response_content
+                }
+            
+            # Add success flag and return
+            parsed_json['success'] = True
+            return parsed_json
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON: {str(e)}")
+            return {
+                'success': False,
+                'error': f"Failed to parse AI response as JSON: {str(e)}",
+                'raw_response': ai_response_content
+            }
+
+    except Exception as e:
+        logger.error(f"Error calling Azure OpenAI API: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': f'Failed to get AI suggestions: {str(e)}'
+        }
+
+
+# Flask Routes
 @app.route('/')
 def index():
     """Main page."""
@@ -484,6 +616,45 @@ def templates_page():
     """Show templates management page."""
     templates = list_templates()
     return render_template('templates.html', templates=templates)
+
+
+@app.route('/improve_email', methods=['POST'])
+def improve_email_route():
+    """Improve email content using AI and provide spam-proofing suggestions."""
+    try:
+        # Get form data
+        subject = request.form.get('subject', '').strip()
+        body = request.form.get('body', '').strip()
+        context = request.form.get('context', '').strip()
+        
+        logger.info(f"AI improvement request - Subject: {subject[:50]}..., Body length: {len(body)}")
+        
+        if not subject or not body:
+            return jsonify({
+                'success': False, 
+                'error': 'Both subject and body are required for AI improvement'
+            })
+        
+        # Check if AI service is available
+        if not azure_openai_client:
+            return jsonify({
+                'success': False,
+                'error': 'AI service is currently unavailable. Please check the Azure OpenAI configuration.'
+            })
+        
+        # Call AI improvement function
+        result = improve_email_with_ai(subject, body, context)
+        
+        logger.info(f"AI improvement result: success={result.get('success', False)}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in AI email improvement route: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': f'An error occurred while improving the email: {str(e)}'
+        })
 
 
 if __name__ == '__main__':
