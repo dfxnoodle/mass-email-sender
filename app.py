@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from typing import List, Dict
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')  # Use env variable
