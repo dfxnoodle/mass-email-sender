@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h4 class="mb-0">
+                    <i class="bi bi-send-fill me-2"></i>Sending Email Campaign
+                    <small class="ms-2">Campaign ID: {{ campaign_id }}</small>
+                </h4>
+            </div>
+            <div class="card-body">
+                <!-- Overall Progress -->
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Overall Progress</h6>
+                        <span id="progressPercentage" class="badge bg-primary fs-6">0%</span>
+                    </div>
+                    <div class="progress mb-2" style="height: 25px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            <span id="progressText">0 / {{ total_emails }} emails sent</span>
+                        </div>
+                    </div>
+                    <div class="row text-center">
+                        <div class="col-3">
+                            <div class="text-success">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <strong id="successCount">0</strong> Sent
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="text-danger">
+                                <i class="bi bi-x-circle-fill"></i>
+                                <strong id="failureCount">0</strong> Failed
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="text-info">
+                                <i class="bi bi-clock-fill"></i>
+                                <strong id="remainingCount">{{ total_emails }}</strong> Remaining
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="text-primary">
+                                <i class="bi bi-stopwatch-fill"></i>
+                                <strong id="estimatedTime">Calculating...</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Status -->
+                <div class="mb-4">
+                    <h6>Current Status</h6>
+                    <div class="alert alert-info d-flex align-items-center" id="currentStatus">
+                        <div class="spinner-border spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span id="statusText">Initializing email campaign...</span>
+                    </div>
+                </div>
+
+                <!-- Campaign Details -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card border-light">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Campaign Details</h6>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><strong>Sender:</strong> {{ sender_email }}</li>
+                                    <li><strong>Total Recipients:</strong> {{ total_emails }}</li>
+                                    <li><strong>Subject:</strong> {{ subject_preview|truncate(50) }}</li>
+                                    <li><strong>Started:</strong> <span id="startTime">{{ start_time }}</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card border-light">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0"><i class="bi bi-gear me-2"></i>Rate Limiting</h6>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><strong>Delay Between Emails:</strong> {{ rate_limit_delay }}s</li>
+                                    <li><strong>Batch Size:</strong> {{ batch_size }} emails</li>
+                                    <li><strong>Batch Delay:</strong> {{ batch_delay }}s</li>
+                                    <li><strong>Estimated Duration:</strong> <span id="estimatedDuration">{{ estimated_duration }}</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity Log -->
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Recent Activity</h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleAutoScroll()">
+                            <i class="bi bi-arrow-down" id="autoScrollIcon"></i>
+                            <span id="autoScrollText">Auto-scroll: ON</span>
+                        </button>
+                    </div>
+                    <div class="border rounded" style="height: 200px; overflow-y: auto;" id="activityLog">
+                        <div class="p-3 text-muted text-center">
+                            <i class="bi bi-clock"></i> Waiting for activity...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex gap-2" id="actionButtons">
+                    <button class="btn btn-warning" onclick="pauseCampaign()" id="pauseBtn" disabled>
+                        <i class="bi bi-pause-fill me-2"></i>Pause Campaign
+                    </button>
+                    <button class="btn btn-danger" onclick="stopCampaign()" id="stopBtn" disabled>
+                        <i class="bi bi-stop-fill me-2"></i>Stop Campaign
+                    </button>
+                    <button class="btn btn-secondary" onclick="minimizeProgress()" id="minimizeBtn">
+                        <i class="bi bi-dash-square me-2"></i>Minimize
+                    </button>
+                </div>
+
+                <!-- Completion Message (hidden initially) -->
+                <div class="alert alert-success d-none" id="completionMessage">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="alert-heading">
+                                <i class="bi bi-check-circle-fill me-2"></i>Campaign Completed!
+                            </h5>
+                            <p class="mb-0">Your email campaign has finished. Click below to view detailed results.</p>
+                        </div>
+                        <a href="#" class="btn btn-success" id="viewResultsBtn">
+                            <i class="bi bi-bar-chart me-2"></i>View Results
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Minimized Progress Bar (hidden initially) -->
+<div class="position-fixed bottom-0 start-0 end-0 bg-primary text-white p-2 d-none" id="minimizedProgress" style="z-index: 1050;">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-send-fill me-2"></i>
+                    <span>Email Campaign in Progress:</span>
+                    <span class="mx-2" id="miniProgressText">0 / {{ total_emails }}</span>
+                    <div class="progress flex-grow-1 mx-2" style="height: 20px;">
+                        <div class="progress-bar bg-success" id="miniProgressBar" style="width: 0%"></div>
+                    </div>
+                    <span id="miniProgressPercentage">0%</span>
+                </div>
+            </div>
+            <div class="col-md-4 text-end">
+                <button class="btn btn-sm btn-light me-2" onclick="maximizeProgress()">
+                    <i class="bi bi-arrow-up-square"></i> Show Details
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="stopCampaign()">
+                    <i class="bi bi-stop-fill"></i> Stop
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let eventSource;
+let autoScroll = true;
+let campaignCompleted = false;
+let startTime = new Date();
+
+// Initialize progress tracking
+document.addEventListener('DOMContentLoaded', function() {
+    startTime = new Date();
+    initializeEventSource();
+    updateElapsedTime();
+    setInterval(updateElapsedTime, 1000); // Update every second
+});
+
+function initializeEventSource() {
+    eventSource = new EventSource(`/progress_stream/{{ campaign_id }}`);
+    
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        updateProgress(data);
+    };
+    
+    eventSource.onerror = function(event) {
+        console.error('EventSource failed:', event);
+        addActivityLog('error', 'Connection error occurred. Trying to reconnect...');
+        
+        // Try to reconnect after 3 seconds
+        setTimeout(() => {
+            if (!campaignCompleted) {
+                initializeEventSource();
+            }
+        }, 3000);
+    };
+    
+    eventSource.addEventListener('complete', function(event) {
+        const data = JSON.parse(event.data);
+        handleCampaignComplete(data);
+    });
+    
+    eventSource.addEventListener('error', function(event) {
+        const data = JSON.parse(event.data);
+        handleCampaignError(data);
+    });
+}
+
+function updateProgress(data) {
+    const progress = data.progress || 0;
+    const successCount = data.success_count || 0;
+    const failureCount = data.failure_count || 0;
+    const totalEmails = data.total_emails || {{ total_emails }};
+    const currentEmail = data.current_email || '';
+    const status = data.status || '';
+    
+    // Update progress bar
+    const progressPercent = Math.round((progress / totalEmails) * 100);
+    document.getElementById('progressBar').style.width = progressPercent + '%';
+    document.getElementById('progressBar').setAttribute('aria-valuenow', progressPercent);
+    document.getElementById('progressPercentage').textContent = progressPercent + '%';
+    document.getElementById('progressText').textContent = `${progress} / ${totalEmails} emails sent`;
+    
+    // Update counters
+    document.getElementById('successCount').textContent = successCount;
+    document.getElementById('failureCount').textContent = failureCount;
+    document.getElementById('remainingCount').textContent = totalEmails - progress;
+    
+    // Update minimized progress
+    document.getElementById('miniProgressText').textContent = `${progress} / ${totalEmails}`;
+    document.getElementById('miniProgressBar').style.width = progressPercent + '%';
+    document.getElementById('miniProgressPercentage').textContent = progressPercent + '%';
+    
+    // Update current status
+    if (status) {
+        document.getElementById('statusText').textContent = status;
+    }
+    
+    // Calculate and update estimated time remaining
+    updateEstimatedTime(progress, totalEmails);
+    
+    // Add activity log entry
+    if (data.activity) {
+        addActivityLog(data.activity_type || 'info', data.activity);
+    }
+    
+    // Enable pause/stop buttons if not already enabled
+    if (progress > 0) {
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = false;
+    }
+}
+
+function updateEstimatedTime(progress, totalEmails) {
+    if (progress === 0) return;
+    
+    const elapsed = (new Date() - startTime) / 1000; // seconds
+    const rate = progress / elapsed; // emails per second
+    const remaining = totalEmails - progress;
+    const estimatedSeconds = remaining / rate;
+    
+    const estimatedTime = formatDuration(estimatedSeconds);
+    document.getElementById('estimatedTime').textContent = estimatedTime;
+}
+
+function updateElapsedTime() {
+    const elapsed = (new Date() - startTime) / 1000;
+    const elapsedFormatted = formatDuration(elapsed);
+    // You can add an elapsed time display if needed
+}
+
+function formatDuration(seconds) {
+    if (seconds < 60) {
+        return Math.round(seconds) + 's';
+    } else if (seconds < 3600) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = Math.round(seconds % 60);
+        return `${minutes}m ${remainingSeconds}s`;
+    } else {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${hours}h ${minutes}m`;
+    }
+}
+
+function addActivityLog(type, message) {
+    const logContainer = document.getElementById('activityLog');
+    const timestamp = new Date().toLocaleTimeString();
+    
+    let iconClass, bgClass;
+    switch (type) {
+        case 'success':
+            iconClass = 'bi-check-circle-fill text-success';
+            bgClass = 'bg-light';
+            break;
+        case 'error':
+        case 'failure':
+            iconClass = 'bi-x-circle-fill text-danger';
+            bgClass = 'bg-light';
+            break;
+        case 'warning':
+            iconClass = 'bi-exclamation-triangle-fill text-warning';
+            bgClass = 'bg-light';
+            break;
+        default:
+            iconClass = 'bi-info-circle-fill text-info';
+            bgClass = 'bg-light';
+    }
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = `p-2 border-bottom ${bgClass}`;
+    logEntry.innerHTML = `
+        <div class="d-flex align-items-start">
+            <i class="${iconClass} me-2 mt-1"></i>
+            <div class="flex-grow-1">
+                <small class="text-muted">${timestamp}</small>
+                <div>${message}</div>
+            </div>
+        </div>
+    `;
+    
+    logContainer.appendChild(logEntry);
+    
+    // Auto-scroll to bottom if enabled
+    if (autoScroll) {
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+    
+    // Limit log entries to prevent memory issues
+    const logEntries = logContainer.children;
+    if (logEntries.length > 100) {
+        logContainer.removeChild(logEntries[1]); // Keep the "waiting" message as first child
+    }
+}
+
+function toggleAutoScroll() {
+    autoScroll = !autoScroll;
+    const icon = document.getElementById('autoScrollIcon');
+    const text = document.getElementById('autoScrollText');
+    
+    if (autoScroll) {
+        icon.className = 'bi bi-arrow-down';
+        text.textContent = 'Auto-scroll: ON';
+        // Scroll to bottom immediately
+        const logContainer = document.getElementById('activityLog');
+        logContainer.scrollTop = logContainer.scrollHeight;
+    } else {
+        icon.className = 'bi bi-pause';
+        text.textContent = 'Auto-scroll: OFF';
+    }
+}
+
+function pauseCampaign() {
+    fetch(`/pause_campaign/{{ campaign_id }}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addActivityLog('warning', 'Campaign paused by user');
+                document.getElementById('statusText').textContent = 'Campaign paused - click resume to continue';
+                document.getElementById('pauseBtn').innerHTML = '<i class="bi bi-play-fill me-2"></i>Resume Campaign';
+                document.getElementById('pauseBtn').onclick = resumeCampaign;
+            } else {
+                addActivityLog('error', 'Failed to pause campaign: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error pausing campaign:', error);
+            addActivityLog('error', 'Failed to pause campaign');
+        });
+}
+
+function resumeCampaign() {
+    fetch(`/resume_campaign/{{ campaign_id }}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addActivityLog('info', 'Campaign resumed by user');
+                document.getElementById('statusText').textContent = 'Campaign resumed - sending emails...';
+                document.getElementById('pauseBtn').innerHTML = '<i class="bi bi-pause-fill me-2"></i>Pause Campaign';
+                document.getElementById('pauseBtn').onclick = pauseCampaign;
+            } else {
+                addActivityLog('error', 'Failed to resume campaign: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error resuming campaign:', error);
+            addActivityLog('error', 'Failed to resume campaign');
+        });
+}
+
+function stopCampaign() {
+    if (confirm('Are you sure you want to stop this email campaign? This action cannot be undone.')) {
+        fetch(`/stop_campaign/{{ campaign_id }}`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addActivityLog('warning', 'Campaign stopped by user');
+                    handleCampaignComplete(data);
+                } else {
+                    addActivityLog('error', 'Failed to stop campaign: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error stopping campaign:', error);
+                addActivityLog('error', 'Failed to stop campaign');
+            });
+    }
+}
+
+function minimizeProgress() {
+    document.querySelector('.container .row').style.display = 'none';
+    document.getElementById('minimizedProgress').classList.remove('d-none');
+}
+
+function maximizeProgress() {
+    document.querySelector('.container .row').style.display = 'block';
+    document.getElementById('minimizedProgress').classList.add('d-none');
+}
+
+function handleCampaignComplete(data) {
+    campaignCompleted = true;
+    
+    // Close event source
+    if (eventSource) {
+        eventSource.close();
+    }
+    
+    // Update final status
+    document.getElementById('statusText').textContent = 'Campaign completed successfully!';
+    document.querySelector('#currentStatus').className = 'alert alert-success d-flex align-items-center';
+    document.querySelector('#currentStatus .spinner-border').style.display = 'none';
+    
+    // Show completion message
+    const completionMessage = document.getElementById('completionMessage');
+    completionMessage.classList.remove('d-none');
+    
+    // Update results link
+    const resultsBtn = document.getElementById('viewResultsBtn');
+    resultsBtn.href = `/results/${data.campaign_id}`;
+    
+    // Disable action buttons
+    document.getElementById('pauseBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = true;
+    
+    // Add final activity log
+    addActivityLog('success', `Campaign completed! ${data.success_count} emails sent successfully, ${data.failure_count} failed.`);
+    
+    // Auto-redirect to results after 5 seconds
+    setTimeout(() => {
+        if (confirm('Campaign completed! Would you like to view the detailed results?')) {
+            window.location.href = resultsBtn.href;
+        }
+    }, 3000);
+}
+
+function handleCampaignError(data) {
+    campaignCompleted = true;
+    
+    // Close event source
+    if (eventSource) {
+        eventSource.close();
+    }
+    
+    // Update status to error
+    document.getElementById('statusText').textContent = 'Campaign failed: ' + data.error;
+    document.querySelector('#currentStatus').className = 'alert alert-danger d-flex align-items-center';
+    document.querySelector('#currentStatus .spinner-border').style.display = 'none';
+    
+    // Add error to activity log
+    addActivityLog('error', 'Campaign failed: ' + data.error);
+    
+    // Disable action buttons
+    document.getElementById('pauseBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = true;
+}
+
+// Prevent accidental page reload during campaign
+window.addEventListener('beforeunload', function(e) {
+    if (!campaignCompleted) {
+        e.preventDefault();
+        e.returnValue = 'Email campaign is in progress. Are you sure you want to leave this page?';
+    }
+});
+</script>
+{% endblock %}

@@ -10,6 +10,8 @@ import html
 import re
 import json
 import time
+import threading
+import queue
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -60,6 +62,10 @@ os.makedirs(TEMPLATES_FOLDER, exist_ok=True)
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global progress tracking storage
+campaign_progress = {}
+campaign_control = {}  # For pause/stop controls
 
 # Initialize Azure OpenAI client
 azure_openai_client = None
@@ -185,9 +191,11 @@ def send_email(smtp_server, smtp_port, sender_email, recipient_email, subject, b
         return False, error_msg
 
 
-def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sender_name=None, rate_limit_delay=2, batch_size=10, batch_delay=10):
+def send_batch_emails_with_progress(smtp_server, smtp_port, sender_email, email_data_list, 
+                                   sender_name=None, rate_limit_delay=2, batch_size=10, 
+                                   batch_delay=10, campaign_id=None):
     """
-    Send multiple emails with rate limiting and connection reuse.
+    Send multiple emails with rate limiting, connection reuse, and progress tracking.
     
     Args:
         smtp_server: SMTP server address
@@ -198,6 +206,7 @@ def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sen
         rate_limit_delay: Seconds to wait between individual emails
         batch_size: Number of emails before taking a longer break
         batch_delay: Seconds to wait after each batch
+        campaign_id: Campaign ID for progress tracking
     
     Returns:
         List of tuples: (success, message, recipient_email) for each email
@@ -205,17 +214,64 @@ def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sen
     results = []
     smtp_connection = None
     
+    # Initialize progress tracking
+    if campaign_id:
+        campaign_progress[campaign_id] = {
+            'progress': 0,
+            'success_count': 0,
+            'failure_count': 0,
+            'total_emails': len(email_data_list),
+            'status': 'Initializing SMTP connection...',
+            'activity': None,
+            'activity_type': 'info',
+            'current_email': '',
+            'start_time': datetime.now()
+        }
+        
+        campaign_control[campaign_id] = {
+            'paused': False,
+            'stopped': False
+        }
+    
     try:
         # Create persistent SMTP connection
         smtp_connection = smtplib.SMTP(smtp_server, smtp_port)
         logger.info(f"Established SMTP connection to {smtp_server}:{smtp_port}")
         
+        if campaign_id:
+            campaign_progress[campaign_id]['status'] = 'SMTP connection established. Starting to send emails...'
+            campaign_progress[campaign_id]['activity'] = f'Connected to {smtp_server}:{smtp_port}'
+        
         total_emails = len(email_data_list)
         
         for index, email_data in enumerate(email_data_list, 1):
+            # Check for pause/stop controls
+            if campaign_id and campaign_id in campaign_control:
+                # Handle pause
+                while campaign_control[campaign_id].get('paused', False):
+                    if campaign_id in campaign_progress:
+                        campaign_progress[campaign_id]['status'] = 'Campaign paused by user'
+                        campaign_progress[campaign_id]['activity'] = 'Campaign paused - waiting for resume'
+                        campaign_progress[campaign_id]['activity_type'] = 'warning'
+                    time.sleep(1)  # Check every second
+                
+                # Handle stop
+                if campaign_control[campaign_id].get('stopped', False):
+                    if campaign_id in campaign_progress:
+                        campaign_progress[campaign_id]['status'] = 'Campaign stopped by user'
+                        campaign_progress[campaign_id]['activity'] = 'Campaign stopped - remaining emails cancelled'
+                        campaign_progress[campaign_id]['activity_type'] = 'warning'
+                    logger.info(f"Campaign {campaign_id} stopped by user at email {index}/{total_emails}")
+                    break
+            
             recipient_email = email_data['recipient']
             subject = email_data['subject']
             body = email_data['body']
+            
+            # Update progress with current email
+            if campaign_id:
+                campaign_progress[campaign_id]['current_email'] = recipient_email
+                campaign_progress[campaign_id]['status'] = f'Sending email {index}/{total_emails} to {recipient_email}'
             
             # Send email using persistent connection
             success, message = send_email(
@@ -225,9 +281,21 @@ def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sen
             
             results.append((success, message, recipient_email))
             
+            # Update progress tracking
+            if campaign_id:
+                campaign_progress[campaign_id]['progress'] = index
+                if success:
+                    campaign_progress[campaign_id]['success_count'] += 1
+                    campaign_progress[campaign_id]['activity'] = f'✓ Email sent successfully to {recipient_email}'
+                    campaign_progress[campaign_id]['activity_type'] = 'success'
+                else:
+                    campaign_progress[campaign_id]['failure_count'] += 1
+                    campaign_progress[campaign_id]['activity'] = f'✗ Failed to send to {recipient_email}: {message}'
+                    campaign_progress[campaign_id]['activity_type'] = 'error'
+            
             # Log progress
             if index % 10 == 0 or index == total_emails:
-                logger.info(f"Sent {index}/{total_emails} emails")
+                logger.info(f"Campaign {campaign_id}: Sent {index}/{total_emails} emails")
             
             # Rate limiting: pause between emails
             if index < total_emails:  # Don't pause after the last email
@@ -236,11 +304,22 @@ def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sen
             
             # Batch delay: longer pause after every batch_size emails
             if index % batch_size == 0 and index < total_emails:
+                if campaign_id:
+                    campaign_progress[campaign_id]['status'] = f'Completed batch of {batch_size} emails. Taking {batch_delay}s break...'
+                    campaign_progress[campaign_id]['activity'] = f'Batch completed ({index}/{total_emails}). Taking {batch_delay}s break...'
+                    campaign_progress[campaign_id]['activity_type'] = 'info'
+                
                 logger.info(f"Completed batch of {batch_size} emails. Taking {batch_delay}s break...")
                 time.sleep(batch_delay)
         
     except Exception as e:
         logger.error(f"Error in batch email sending: {str(e)}")
+        
+        if campaign_id:
+            campaign_progress[campaign_id]['status'] = f'SMTP connection error: {str(e)}'
+            campaign_progress[campaign_id]['activity'] = f'Connection error: {str(e)}'
+            campaign_progress[campaign_id]['activity_type'] = 'error'
+        
         # If connection failed, mark remaining emails as failed
         remaining_emails = email_data_list[len(results):]
         for email_data in remaining_emails:
@@ -254,6 +333,12 @@ def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sen
                 logger.info("SMTP connection closed")
             except Exception as e:
                 logger.warning(f"Error closing SMTP connection: {str(e)}")
+        
+        # Mark campaign as completed
+        if campaign_id and campaign_id in campaign_progress:
+            campaign_progress[campaign_id]['status'] = 'Campaign completed'
+            campaign_progress[campaign_id]['activity'] = f'Campaign finished. Total: {len(results)} emails processed'
+            campaign_progress[campaign_id]['activity_type'] = 'success'
     
     return results
 
@@ -526,7 +611,7 @@ def upload_file():
 
 @app.route('/send_emails', methods=['POST'])
 def send_emails():
-    """Send mass emails based on uploaded CSV and composed message with rate limiting."""
+    """Send mass emails based on uploaded CSV and composed message with progress tracking."""
     try:
         # Get form data
         filepath = request.form.get('filepath')
@@ -552,10 +637,13 @@ def send_emails():
             flash('Error reading CSV data')
             return redirect(url_for('index'))
         
-        # Initialize email logging
+        # Initialize campaign
         campaign_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        email_log = []
         start_time = datetime.now()
+        
+        # Calculate estimated duration
+        total_emails = len(csv_data)
+        estimated_duration = calculate_estimated_duration(total_emails, rate_limit_delay, batch_size, batch_delay)
         
         # Prepare email data for batch sending
         email_data_list = []
@@ -565,24 +653,10 @@ def send_emails():
         
         for row_index, row in enumerate(csv_data, 1):
             recipient_email = row.get(email_column)
-            timestamp = datetime.now().isoformat()
             
             if not recipient_email:
                 error_msg = f"Row {row_index}: Missing email address"
                 failures.append(error_msg)
-                
-                # Log the failure
-                email_log.append({
-                    'campaign_id': campaign_id,
-                    'timestamp': timestamp,
-                    'row_number': row_index,
-                    'recipient_email': 'N/A',
-                    'subject': 'N/A',
-                    'status': 'FAILED',
-                    'error_message': 'Missing email address',
-                    'sender_email': sender_email,
-                    'sender_name': sender_name
-                })
                 continue
             
             # Personalize subject and body
@@ -597,80 +671,258 @@ def send_emails():
                 'row_index': row_index
             })
         
-        # Send emails in batches with rate limiting
+        # Show progress page immediately
+        subject_preview = personalize_content(subject_template, csv_data[0] if csv_data else {})
+        
+        # Start email sending in background thread
         if email_data_list:
-            logger.info(f"Sending {len(email_data_list)} emails with custom rate limiting (delay: {rate_limit_delay}s, batch size: {batch_size}, batch delay: {batch_delay}s)")
+            def send_emails_background():
+                try:
+                    batch_results = send_batch_emails_with_progress(
+                        SMTP_SERVER, SMTP_PORT, sender_email, email_data_list, 
+                        sender_name, rate_limit_delay, batch_size, batch_delay, campaign_id
+                    )
+                    
+                    # Process results and create logs
+                    email_log = []
+                    success_count = 0
+                    failure_count = len(failures)  # Pre-processing failures
+                    
+                    for i, (success, message, recipient_email) in enumerate(batch_results):
+                        email_data = email_data_list[i]
+                        row_index = email_data['row_index']
+                        timestamp = datetime.now().isoformat()
+                        
+                        # Log the email attempt
+                        log_entry = {
+                            'campaign_id': campaign_id,
+                            'timestamp': timestamp,
+                            'row_number': row_index,
+                            'recipient_email': recipient_email,
+                            'subject': email_data['subject'],
+                            'status': 'SUCCESS' if success else 'FAILED',
+                            'error_message': '' if success else message,
+                            'sender_email': sender_email,
+                            'sender_name': sender_name
+                        }
+                        email_log.append(log_entry)
+                        
+                        if success:
+                            success_count += 1
+                        else:
+                            failure_count += 1
+                    
+                    # Add pre-processing failures to log
+                    for failure in failures:
+                        email_log.append({
+                            'campaign_id': campaign_id,
+                            'timestamp': datetime.now().isoformat(),
+                            'row_number': 'N/A',
+                            'recipient_email': 'N/A',
+                            'subject': 'N/A',
+                            'status': 'FAILED',
+                            'error_message': failure,
+                            'sender_email': sender_email,
+                            'sender_name': sender_name
+                        })
+                    
+                    # Store results for later retrieval
+                    end_time = datetime.now()
+                    duration = end_time - start_time
+                    
+                    app.config[f'CAMPAIGN_RESULTS_{campaign_id}'] = {
+                        'success_count': success_count,
+                        'failure_count': failure_count,
+                        'failures': [f"Row {email_data_list[i]['row_index']}: {message}" for i, (success, message, _) in enumerate(batch_results) if not success] + failures,
+                        'campaign_id': campaign_id,
+                        'duration': duration.total_seconds(),
+                        'total_emails': success_count + failure_count,
+                        'rate_limit_info': {
+                            'delay': rate_limit_delay,
+                            'batch_size': batch_size,
+                            'batch_delay': batch_delay
+                        }
+                    }
+                    
+                    # Store email log
+                    app.config['LAST_EMAIL_LOG'] = email_log
+                    app.config['LAST_CAMPAIGN_ID'] = campaign_id
+                    
+                    # Clean up uploaded file
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                    
+                    # Mark campaign as completed in progress tracking
+                    if campaign_id in campaign_progress:
+                        campaign_progress[campaign_id]['completed'] = True
+                        campaign_progress[campaign_id]['results'] = app.config[f'CAMPAIGN_RESULTS_{campaign_id}']
+                    
+                    logger.info(f"Campaign {campaign_id} completed: {success_count} successful, {failure_count} failed")
+                    
+                except Exception as e:
+                    logger.error(f"Error in background email sending: {str(e)}")
+                    if campaign_id in campaign_progress:
+                        campaign_progress[campaign_id]['error'] = str(e)
+                        campaign_progress[campaign_id]['completed'] = True
             
-            batch_results = send_batch_emails(
-                SMTP_SERVER, SMTP_PORT, sender_email, email_data_list, 
-                sender_name, rate_limit_delay, batch_size, batch_delay
-            )
-            
-            # Process results and create logs
-            success_count = 0
-            failure_count = len([f for f in failures if f])  # Count pre-processing failures
-            
-            for i, (success, message, recipient_email) in enumerate(batch_results):
-                email_data = email_data_list[i]
-                row_index = email_data['row_index']
-                timestamp = datetime.now().isoformat()
-                
-                # Log the email attempt
-                log_entry = {
-                    'campaign_id': campaign_id,
-                    'timestamp': timestamp,
-                    'row_number': row_index,
-                    'recipient_email': recipient_email,
-                    'subject': email_data['subject'],
-                    'status': 'SUCCESS' if success else 'FAILED',
-                    'error_message': '' if success else message,
-                    'sender_email': sender_email,
-                    'sender_name': sender_name
-                }
-                email_log.append(log_entry)
-                
-                if success:
-                    success_count += 1
-                else:
-                    failure_count += 1
-                    failures.append(f"Row {row_index}: {message}")
-        else:
-            success_count = 0
-            failure_count = len(failures)
+            # Start background thread
+            thread = threading.Thread(target=send_emails_background)
+            thread.daemon = True
+            thread.start()
         
-        # Calculate campaign duration
-        end_time = datetime.now()
-        duration = end_time - start_time
-        total_emails = success_count + failure_count
-        
-        logger.info(f"Campaign {campaign_id} completed in {duration.total_seconds():.1f}s: {success_count} successful, {failure_count} failed out of {total_emails} total")
-        
-        # Store email log in session for download
-        app.config['LAST_EMAIL_LOG'] = email_log
-        app.config['LAST_CAMPAIGN_ID'] = campaign_id
-        
-        # Clean up uploaded file
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        
-        # Show results with additional info
-        return render_template('results.html',
-                             success_count=success_count,
-                             failure_count=failure_count,
-                             failures=failures,
+        # Return progress page immediately
+        return render_template('progress.html',
                              campaign_id=campaign_id,
-                             duration=duration.total_seconds(),
-                             total_emails=total_emails,
-                             rate_limit_info={
-                                 'delay': rate_limit_delay,
-                                 'batch_size': batch_size,
-                                 'batch_delay': batch_delay
-                             })
+                             total_emails=len(email_data_list),
+                             sender_email=sender_email,
+                             subject_preview=subject_preview,
+                             start_time=start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                             rate_limit_delay=rate_limit_delay,
+                             batch_size=batch_size,
+                             batch_delay=batch_delay,
+                             estimated_duration=estimated_duration)
         
     except Exception as e:
         logger.error(f"Error in send_emails: {str(e)}")
         flash(f'An error occurred: {str(e)}')
         return redirect(url_for('index'))
+
+
+def calculate_estimated_duration(total_emails, rate_limit_delay, batch_size, batch_delay):
+    """Calculate estimated campaign duration."""
+    if total_emails == 0:
+        return "0s"
+    
+    # Calculate time for individual emails
+    individual_delay_time = (total_emails - 1) * rate_limit_delay
+    
+    # Calculate number of batches and batch delay time
+    num_batches = total_emails // batch_size
+    batch_delay_time = num_batches * batch_delay
+    
+    # Add base time for processing (estimate 1 second per email)
+    processing_time = total_emails * 1
+    
+    total_seconds = individual_delay_time + batch_delay_time + processing_time
+    
+    if total_seconds < 60:
+        return f"{int(total_seconds)}s"
+    elif total_seconds < 3600:
+        minutes = int(total_seconds // 60)
+        seconds = int(total_seconds % 60)
+        return f"{minutes}m {seconds}s"
+    else:
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        return f"{hours}h {minutes}m"
+
+
+def prepare_data_for_json(data):
+    """Convert datetime objects to strings for JSON serialization."""
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                result[key] = value.isoformat()
+            elif isinstance(value, dict):
+                result[key] = prepare_data_for_json(value)
+            elif isinstance(value, list):
+                result[key] = [prepare_data_for_json(item) if isinstance(item, (dict, datetime)) else item for item in value]
+            else:
+                result[key] = value
+        return result
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    else:
+        return data
+
+
+@app.route('/progress_stream/<campaign_id>')
+def progress_stream(campaign_id):
+    """Server-Sent Events stream for progress updates."""
+    def event_stream():
+        last_update = {}
+        
+        while True:
+            if campaign_id in campaign_progress:
+                current_data = campaign_progress[campaign_id].copy()
+                
+                # Only send update if data has changed
+                if current_data != last_update:
+                    # Check if campaign completed
+                    if current_data.get('completed'):
+                        if current_data.get('error'):
+                            yield f"event: error\ndata: {json.dumps({'error': current_data['error'], 'campaign_id': campaign_id})}\n\n"
+                        else:
+                            results = current_data.get('results', {})
+                            yield f"event: complete\ndata: {json.dumps({'campaign_id': campaign_id, 'success_count': results.get('success_count', 0), 'failure_count': results.get('failure_count', 0)})}\n\n"
+                        break
+                    else:
+                        # Prepare data for JSON serialization (convert datetime objects)
+                        json_safe_data = prepare_data_for_json(current_data)
+                        yield f"data: {json.dumps(json_safe_data)}\n\n"
+                    
+                    last_update = current_data.copy()
+            
+            time.sleep(1)  # Update every second
+    
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
+@app.route('/results/<campaign_id>')
+def campaign_results(campaign_id):
+    """Show results for a specific campaign."""
+    results_key = f'CAMPAIGN_RESULTS_{campaign_id}'
+    
+    if results_key not in app.config:
+        flash('Campaign results not found or expired')
+        return redirect(url_for('index'))
+    
+    results = app.config[results_key]
+    
+    return render_template('results.html', **results)
+
+
+@app.route('/pause_campaign/<campaign_id>', methods=['POST'])
+def pause_campaign(campaign_id):
+    """Pause an ongoing email campaign."""
+    try:
+        if campaign_id in campaign_control:
+            campaign_control[campaign_id]['paused'] = True
+            return jsonify({'success': True, 'message': 'Campaign paused'})
+        else:
+            return jsonify({'success': False, 'error': 'Campaign not found'})
+    except Exception as e:
+        logger.error(f"Error pausing campaign {campaign_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/resume_campaign/<campaign_id>', methods=['POST'])
+def resume_campaign(campaign_id):
+    """Resume a paused email campaign."""
+    try:
+        if campaign_id in campaign_control:
+            campaign_control[campaign_id]['paused'] = False
+            return jsonify({'success': True, 'message': 'Campaign resumed'})
+        else:
+            return jsonify({'success': False, 'error': 'Campaign not found'})
+    except Exception as e:
+        logger.error(f"Error resuming campaign {campaign_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/stop_campaign/<campaign_id>', methods=['POST'])
+def stop_campaign(campaign_id):
+    """Stop an ongoing email campaign."""
+    try:
+        if campaign_id in campaign_control:
+            campaign_control[campaign_id]['stopped'] = True
+            return jsonify({'success': True, 'message': 'Campaign stopped'})
+        else:
+            return jsonify({'success': False, 'error': 'Campaign not found'})
+    except Exception as e:
+        logger.error(f"Error stopping campaign {campaign_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/preview', methods=['POST'])
