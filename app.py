@@ -9,6 +9,7 @@ import smtplib
 import html
 import re
 import json
+import time
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -36,6 +37,11 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 # CUHK Email Server Configuration
 SMTP_SERVER = 'mailserv.cuhk.edu.hk'
 SMTP_PORT = 25
+
+# Rate limiting configuration for SMTP server
+EMAIL_RATE_LIMIT_DELAY = 2  # seconds between emails
+EMAIL_BATCH_SIZE = 10  # number of emails before longer pause
+EMAIL_BATCH_DELAY = 10  # seconds to pause after each batch
 
 # Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY')
@@ -136,15 +142,16 @@ def read_csv_data(filepath):
         return []
 
 
-def send_email(smtp_server, smtp_port, sender_email, recipient_email, subject, body, sender_name=None, is_html=True):
-    """Send individual email using SMTP."""
+def send_email(smtp_server, smtp_port, sender_email, recipient_email, subject, body, sender_name=None, is_html=True, smtp_connection=None):
+    """Send individual email using SMTP with optional connection reuse."""
     try:
         # Create message
         msg = MIMEMultipart('alternative')
         msg['From'] = f"{sender_name} <{sender_email}>" if sender_name else sender_email
         msg['To'] = recipient_email
         msg['Subject'] = subject
-          # Create HTML and plain text versions
+        
+        # Create HTML and plain text versions
         if is_html:
             # Convert HTML to plain text for fallback
             plain_text = re.sub('<[^<]+?>', '', body)  # Simple HTML tag removal
@@ -161,16 +168,94 @@ def send_email(smtp_server, smtp_port, sender_email, recipient_email, subject, b
             # Plain text only
             msg.attach(MIMEText(body, 'plain'))
         
-        # Connect to server and send email
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.sendmail(sender_email, recipient_email, msg.as_string())
-        server.quit()
+        # Use provided connection or create new one
+        if smtp_connection:
+            server = smtp_connection
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+        else:
+            # Connect to server and send email (single email mode)
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.sendmail(sender_email, recipient_email, msg.as_string())
+            server.quit()
         
         return True, "Email sent successfully"
     except Exception as e:
         error_msg = f"Failed to send email to {recipient_email}: {str(e)}"
         logger.error(error_msg)
         return False, error_msg
+
+
+def send_batch_emails(smtp_server, smtp_port, sender_email, email_data_list, sender_name=None, rate_limit_delay=2, batch_size=10, batch_delay=10):
+    """
+    Send multiple emails with rate limiting and connection reuse.
+    
+    Args:
+        smtp_server: SMTP server address
+        smtp_port: SMTP server port
+        sender_email: Sender's email address
+        email_data_list: List of dicts with 'recipient', 'subject', 'body' keys
+        sender_name: Sender's display name
+        rate_limit_delay: Seconds to wait between individual emails
+        batch_size: Number of emails before taking a longer break
+        batch_delay: Seconds to wait after each batch
+    
+    Returns:
+        List of tuples: (success, message, recipient_email) for each email
+    """
+    results = []
+    smtp_connection = None
+    
+    try:
+        # Create persistent SMTP connection
+        smtp_connection = smtplib.SMTP(smtp_server, smtp_port)
+        logger.info(f"Established SMTP connection to {smtp_server}:{smtp_port}")
+        
+        total_emails = len(email_data_list)
+        
+        for index, email_data in enumerate(email_data_list, 1):
+            recipient_email = email_data['recipient']
+            subject = email_data['subject']
+            body = email_data['body']
+            
+            # Send email using persistent connection
+            success, message = send_email(
+                smtp_server, smtp_port, sender_email, recipient_email,
+                subject, body, sender_name, is_html=True, smtp_connection=smtp_connection
+            )
+            
+            results.append((success, message, recipient_email))
+            
+            # Log progress
+            if index % 10 == 0 or index == total_emails:
+                logger.info(f"Sent {index}/{total_emails} emails")
+            
+            # Rate limiting: pause between emails
+            if index < total_emails:  # Don't pause after the last email
+                time.sleep(rate_limit_delay)
+                logger.debug(f"Waiting {rate_limit_delay}s before next email")
+            
+            # Batch delay: longer pause after every batch_size emails
+            if index % batch_size == 0 and index < total_emails:
+                logger.info(f"Completed batch of {batch_size} emails. Taking {batch_delay}s break...")
+                time.sleep(batch_delay)
+        
+    except Exception as e:
+        logger.error(f"Error in batch email sending: {str(e)}")
+        # If connection failed, mark remaining emails as failed
+        remaining_emails = email_data_list[len(results):]
+        for email_data in remaining_emails:
+            results.append((False, f"SMTP connection error: {str(e)}", email_data['recipient']))
+    
+    finally:
+        # Close SMTP connection
+        if smtp_connection:
+            try:
+                smtp_connection.quit()
+                logger.info("SMTP connection closed")
+            except Exception as e:
+                logger.warning(f"Error closing SMTP connection: {str(e)}")
+    
+    return results
 
 
 def personalize_content(template, row_data):
@@ -421,13 +506,19 @@ def upload_file():
             flash(f'Invalid CSV file: {result}')
             os.remove(filepath)  # Clean up invalid file
             return redirect(url_for('index'))
-          # Store file info in session or pass to next page
+        
+        # Get CSV data count for rate limiting estimation
+        csv_data = read_csv_data(filepath)
+        csv_count = len(csv_data) if csv_data else 0
+        
+        # Store file info in session or pass to next page
         templates = list_templates()
         return render_template('compose.html', 
                              filename=filename, 
                              columns=result,
                              filepath=filepath,
-                             templates=templates)
+                             templates=templates,
+                             csv_count=csv_count)
     else:
         flash('Invalid file type. Please upload a CSV file.')
         return redirect(url_for('index'))
@@ -435,7 +526,7 @@ def upload_file():
 
 @app.route('/send_emails', methods=['POST'])
 def send_emails():
-    """Send mass emails based on uploaded CSV and composed message."""
+    """Send mass emails based on uploaded CSV and composed message with rate limiting."""
     try:
         # Get form data
         filepath = request.form.get('filepath')
@@ -444,6 +535,11 @@ def send_emails():
         subject_template = request.form.get('subject')
         body_template = request.form.get('body')
         email_column = request.form.get('email_column')
+        
+        # Get rate limiting settings with defaults
+        rate_limit_delay = int(request.form.get('rate_limit_delay', EMAIL_RATE_LIMIT_DELAY))
+        batch_size = int(request.form.get('batch_size', EMAIL_BATCH_SIZE))
+        batch_delay = int(request.form.get('batch_delay', EMAIL_BATCH_DELAY))
         
         # Validate inputs
         if not all([filepath, sender_email, subject_template, body_template, email_column]):
@@ -459,18 +555,19 @@ def send_emails():
         # Initialize email logging
         campaign_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         email_log = []
+        start_time = datetime.now()
         
-        # Send emails
-        success_count = 0
-        failure_count = 0
+        # Prepare email data for batch sending
+        email_data_list = []
         failures = []
+        
+        logger.info(f"Starting email campaign {campaign_id} with {len(csv_data)} recipients")
         
         for row_index, row in enumerate(csv_data, 1):
             recipient_email = row.get(email_column)
             timestamp = datetime.now().isoformat()
             
             if not recipient_email:
-                failure_count += 1
                 error_msg = f"Row {row_index}: Missing email address"
                 failures.append(error_msg)
                 
@@ -492,31 +589,61 @@ def send_emails():
             personalized_subject = personalize_content(subject_template, row)
             personalized_body = personalize_content(body_template, row)
             
-            # Send email
-            success, message = send_email(
-                SMTP_SERVER, SMTP_PORT, sender_email, recipient_email,
-                personalized_subject, personalized_body, sender_name, is_html=True
+            # Add to batch email list
+            email_data_list.append({
+                'recipient': recipient_email,
+                'subject': personalized_subject,
+                'body': personalized_body,
+                'row_index': row_index
+            })
+        
+        # Send emails in batches with rate limiting
+        if email_data_list:
+            logger.info(f"Sending {len(email_data_list)} emails with custom rate limiting (delay: {rate_limit_delay}s, batch size: {batch_size}, batch delay: {batch_delay}s)")
+            
+            batch_results = send_batch_emails(
+                SMTP_SERVER, SMTP_PORT, sender_email, email_data_list, 
+                sender_name, rate_limit_delay, batch_size, batch_delay
             )
             
-            # Log the email attempt
-            log_entry = {
-                'campaign_id': campaign_id,
-                'timestamp': timestamp,
-                'row_number': row_index,
-                'recipient_email': recipient_email,
-                'subject': personalized_subject,
-                'status': 'SUCCESS' if success else 'FAILED',
-                'error_message': '' if success else message,
-                'sender_email': sender_email,
-                'sender_name': sender_name
-            }
-            email_log.append(log_entry)
+            # Process results and create logs
+            success_count = 0
+            failure_count = len([f for f in failures if f])  # Count pre-processing failures
             
-            if success:
-                success_count += 1
-            else:
-                failure_count += 1
-                failures.append(f"Row {row_index}: {message}")
+            for i, (success, message, recipient_email) in enumerate(batch_results):
+                email_data = email_data_list[i]
+                row_index = email_data['row_index']
+                timestamp = datetime.now().isoformat()
+                
+                # Log the email attempt
+                log_entry = {
+                    'campaign_id': campaign_id,
+                    'timestamp': timestamp,
+                    'row_number': row_index,
+                    'recipient_email': recipient_email,
+                    'subject': email_data['subject'],
+                    'status': 'SUCCESS' if success else 'FAILED',
+                    'error_message': '' if success else message,
+                    'sender_email': sender_email,
+                    'sender_name': sender_name
+                }
+                email_log.append(log_entry)
+                
+                if success:
+                    success_count += 1
+                else:
+                    failure_count += 1
+                    failures.append(f"Row {row_index}: {message}")
+        else:
+            success_count = 0
+            failure_count = len(failures)
+        
+        # Calculate campaign duration
+        end_time = datetime.now()
+        duration = end_time - start_time
+        total_emails = success_count + failure_count
+        
+        logger.info(f"Campaign {campaign_id} completed in {duration.total_seconds():.1f}s: {success_count} successful, {failure_count} failed out of {total_emails} total")
         
         # Store email log in session for download
         app.config['LAST_EMAIL_LOG'] = email_log
@@ -526,12 +653,19 @@ def send_emails():
         if os.path.exists(filepath):
             os.remove(filepath)
         
-        # Show results
+        # Show results with additional info
         return render_template('results.html',
                              success_count=success_count,
                              failure_count=failure_count,
                              failures=failures,
-                             campaign_id=campaign_id)
+                             campaign_id=campaign_id,
+                             duration=duration.total_seconds(),
+                             total_emails=total_emails,
+                             rate_limit_info={
+                                 'delay': rate_limit_delay,
+                                 'batch_size': batch_size,
+                                 'batch_delay': batch_delay
+                             })
         
     except Exception as e:
         logger.error(f"Error in send_emails: {str(e)}")

@@ -74,6 +74,53 @@
                         </div>
                     </div>
 
+                    <!-- Rate Limiting Configuration -->
+                    <div class="card border-info mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">
+                                <button class="btn btn-link text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#rateLimitingConfig" aria-expanded="false">
+                                    <i class="bi bi-gear me-2"></i>Rate Limiting Settings
+                                    <i class="bi bi-chevron-down ms-2"></i>
+                                </button>
+                            </h6>
+                        </div>
+                        <div class="collapse" id="rateLimitingConfig">
+                            <div class="card-body">
+                                <div class="alert alert-info">
+                                    <small><i class="bi bi-info-circle me-1"></i>
+                                    Rate limiting helps prevent overwhelming the SMTP server and reduces the chance of emails being rejected or marked as spam.
+                                    </small>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <label for="rate_limit_delay" class="form-label">Delay Between Emails (seconds)</label>
+                                        <input type="number" class="form-control" id="rate_limit_delay" name="rate_limit_delay" 
+                                               value="2" min="1" max="60" step="1">
+                                        <div class="form-text">Wait time between individual emails</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="batch_size" class="form-label">Batch Size</label>
+                                        <input type="number" class="form-control" id="batch_size" name="batch_size" 
+                                               value="10" min="5" max="50" step="5">
+                                        <div class="form-text">Emails per batch before longer break</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="batch_delay" class="form-label">Batch Break (seconds)</label>
+                                        <input type="number" class="form-control" id="batch_delay" name="batch_delay" 
+                                               value="10" min="5" max="300" step="5">
+                                        <div class="form-text">Wait time after each batch</div>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <small class="text-muted">
+                                        <strong>Example:</strong> With current settings, 100 emails will take approximately 
+                                        <span id="estimatedTime">~3.5 minutes</span> to send.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Action Buttons -->
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-primary" onclick="previewEmail()">
@@ -1291,6 +1338,48 @@
                 });
             }
         };
+
+        // Rate limiting calculation
+        function updateEstimatedTime() {
+            const delay = parseInt(document.getElementById('rate_limit_delay').value) || 2;
+            const batchSize = parseInt(document.getElementById('batch_size').value) || 10;
+            const batchDelay = parseInt(document.getElementById('batch_delay').value) || 10;
+            
+            // Estimate based on CSV data count (you could make this dynamic)
+            const estimatedEmails = {{ csv_count if csv_count else 100 }};
+            
+            // Calculate time: (emails * delay) + (batches * batch_delay)
+            const numberOfBatches = Math.ceil(estimatedEmails / batchSize);
+            const totalDelayTime = (estimatedEmails - 1) * delay; // -1 because no delay after last email
+            const totalBatchTime = (numberOfBatches - 1) * batchDelay; // -1 because no delay after last batch
+            const totalSeconds = totalDelayTime + totalBatchTime;
+            
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            
+            let timeString = '';
+            if (minutes > 0) {
+                timeString = `~${minutes}m ${seconds}s`;
+            } else {
+                timeString = `~${seconds}s`;
+            }
+            
+            document.getElementById('estimatedTime').textContent = timeString;
+        }
+
+        // Add event listeners for rate limiting inputs
+        document.addEventListener('DOMContentLoaded', function() {
+            const rateLimitInputs = ['rate_limit_delay', 'batch_size', 'batch_delay'];
+            rateLimitInputs.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.addEventListener('input', updateEstimatedTime);
+                }
+            });
+            
+            // Initial calculation
+            updateEstimatedTime();
+        });
     });
         
 </script>

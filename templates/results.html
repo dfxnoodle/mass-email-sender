@@ -44,9 +44,15 @@
                     <h6><i class="bi bi-info-circle me-2"></i>Campaign Summary</h6>
                     <ul class="mb-0">
                         <li>Campaign ID: {{ campaign_id }}</li>
-                        <li>Total emails processed: {{ success_count + failure_count }}</li>
+                        <li>Total emails processed: {{ total_emails if total_emails else (success_count + failure_count) }}</li>
                         <li>Success rate: {{ "%.1f"|format((success_count / (success_count + failure_count) * 100) if (success_count + failure_count) > 0 else 0) }}%</li>
+                        {% if duration %}
+                        <li>Campaign duration: {{ "%.1f"|format(duration) }} seconds</li>
+                        {% endif %}
                         <li>SMTP Server: mailserv.cuhk.edu.hk:25</li>
+                        {% if rate_limit_info %}
+                        <li>Rate limiting: {{ rate_limit_info.delay }}s delay, batches of {{ rate_limit_info.batch_size }} with {{ rate_limit_info.batch_delay }}s breaks</li>
+                        {% endif %}
                     </ul>
                 </div>
 
