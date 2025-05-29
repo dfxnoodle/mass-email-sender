@@ -336,11 +336,14 @@ def send_batch_emails_with_progress(smtp_server, smtp_port, sender_email, email_
         
         # Mark campaign as completed
         if campaign_id and campaign_id in campaign_progress:
-            # Ensure progress shows 100% (total_emails)
+            # Ensure progress shows 100% (total_emails) and send this update first
             campaign_progress[campaign_id]['progress'] = len(email_data_list)
             campaign_progress[campaign_id]['status'] = 'Campaign completed'
             campaign_progress[campaign_id]['activity'] = f'Campaign finished. Total: {len(results)} emails processed'
             campaign_progress[campaign_id]['activity_type'] = 'success'
+            
+            # Small delay to ensure the progress update is sent before marking as completed
+            time.sleep(0.1)
     
     return results
 
@@ -857,18 +860,23 @@ def progress_stream(campaign_id):
                 
                 # Only send update if data has changed
                 if current_data != last_update:
-                    # Check if campaign completed
-                    if current_data.get('completed'):
+                    # Always send progress update first (even if completed)
+                    if not current_data.get('completed'):
+                        # Prepare data for JSON serialization (convert datetime objects)
+                        json_safe_data = prepare_data_for_json(current_data)
+                        yield f"data: {json.dumps(json_safe_data)}\n\n"
+                    else:
+                        # Send final progress update before completion event
+                        json_safe_data = prepare_data_for_json(current_data)
+                        yield f"data: {json.dumps(json_safe_data)}\n\n"
+                        
+                        # Then send completion event
                         if current_data.get('error'):
                             yield f"event: error\ndata: {json.dumps({'error': current_data['error'], 'campaign_id': campaign_id})}\n\n"
                         else:
                             results = current_data.get('results', {})
                             yield f"event: complete\ndata: {json.dumps({'campaign_id': campaign_id, 'success_count': results.get('success_count', 0), 'failure_count': results.get('failure_count', 0)})}\n\n"
                         break
-                    else:
-                        # Prepare data for JSON serialization (convert datetime objects)
-                        json_safe_data = prepare_data_for_json(current_data)
-                        yield f"data: {json.dumps(json_safe_data)}\n\n"
                     
                     last_update = current_data.copy()
             

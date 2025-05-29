@@ -226,8 +226,12 @@ function updateProgress(data) {
     const currentEmail = data.current_email || '';
     const status = data.status || '';
     
+    console.log('Progress update:', {progress, totalEmails, status});
+    
     // Update progress bar
     const progressPercent = progress >= totalEmails ? 100 : Math.round((progress / totalEmails) * 100);
+    console.log('Progress percent calculated:', progressPercent);
+    
     document.getElementById('progressBar').style.width = progressPercent + '%';
     document.getElementById('progressBar').setAttribute('aria-valuenow', progressPercent);
     document.getElementById('progressPercentage').textContent = progressPercent + '%';
@@ -436,6 +440,19 @@ function handleCampaignComplete(data) {
     if (eventSource) {
         eventSource.close();
     }
+    
+    // Ensure progress shows 100% before showing completion (in case it hasn't been updated yet)
+    const totalEmails = {{ total_emails }};
+    document.getElementById('progressBar').style.width = '100%';
+    document.getElementById('progressBar').setAttribute('aria-valuenow', '100');
+    document.getElementById('progressPercentage').textContent = '100%';
+    document.getElementById('progressText').textContent = `${totalEmails} / ${totalEmails} emails sent`;
+    document.getElementById('remainingCount').textContent = '0';
+    
+    // Update minimized progress to 100% as well
+    document.getElementById('miniProgressText').textContent = `${totalEmails} / ${totalEmails}`;
+    document.getElementById('miniProgressBar').style.width = '100%';
+    document.getElementById('miniProgressPercentage').textContent = '100%';
     
     // Update final status
     document.getElementById('statusText').textContent = 'Campaign completed successfully!';
