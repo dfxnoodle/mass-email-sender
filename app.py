@@ -37,13 +37,13 @@ ALLOWED_EXTENSIONS = {'csv'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
 # CUHK Email Server Configuration
-SMTP_SERVER = 'mailserv.cuhk.edu.hk'
-SMTP_PORT = 25
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.googlemail.com')  # Default to Gmail SMTP
+SMTP_PORT = os.getenv('SMTP_PORT', 587)  # Default SMTP port for TLS
 
 # Rate limiting configuration for SMTP server
-EMAIL_RATE_LIMIT_DELAY = 2  # seconds between emails
-EMAIL_BATCH_SIZE = 10  # number of emails before longer pause
-EMAIL_BATCH_DELAY = 10  # seconds to pause after each batch
+EMAIL_RATE_LIMIT_DELAY = os.getenv('EMAIL_RATE_LIMIT_DELAY', 2)  # seconds between emails
+EMAIL_BATCH_SIZE = os.getenv('EMAIL_BATCH_SIZE', 10)  # number of emails before longer pause
+EMAIL_BATCH_DELAY = os.getenv('EMAIL_BATCH_DELAY', 5)  # seconds to pause after each batch
 
 # Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY = os.getenv('AZURE_OPENAI_API_KEY')
@@ -336,6 +336,8 @@ def send_batch_emails_with_progress(smtp_server, smtp_port, sender_email, email_
         
         # Mark campaign as completed
         if campaign_id and campaign_id in campaign_progress:
+            # Ensure progress shows 100% (total_emails)
+            campaign_progress[campaign_id]['progress'] = len(email_data_list)
             campaign_progress[campaign_id]['status'] = 'Campaign completed'
             campaign_progress[campaign_id]['activity'] = f'Campaign finished. Total: {len(results)} emails processed'
             campaign_progress[campaign_id]['activity_type'] = 'success'
@@ -683,6 +685,13 @@ def send_emails():
                         sender_name, rate_limit_delay, batch_size, batch_delay, campaign_id
                     )
                     
+                    # Brief pause to ensure final progress update is sent before completion
+                    time.sleep(0.5)
+                    
+                    # Mark campaign as completed immediately after batch sending
+                    if campaign_id in campaign_progress:
+                        campaign_progress[campaign_id]['completed'] = True
+                    
                     # Process results and create logs
                     email_log = []
                     success_count = 0
@@ -752,9 +761,8 @@ def send_emails():
                     if os.path.exists(filepath):
                         os.remove(filepath)
                     
-                    # Mark campaign as completed in progress tracking
+                    # Store results for later retrieval and update progress tracking
                     if campaign_id in campaign_progress:
-                        campaign_progress[campaign_id]['completed'] = True
                         campaign_progress[campaign_id]['results'] = app.config[f'CAMPAIGN_RESULTS_{campaign_id}']
                     
                     logger.info(f"Campaign {campaign_id} completed: {success_count} successful, {failure_count} failed")

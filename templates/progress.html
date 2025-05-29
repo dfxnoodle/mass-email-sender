@@ -227,7 +227,7 @@ function updateProgress(data) {
     const status = data.status || '';
     
     // Update progress bar
-    const progressPercent = Math.round((progress / totalEmails) * 100);
+    const progressPercent = progress >= totalEmails ? 100 : Math.round((progress / totalEmails) * 100);
     document.getElementById('progressBar').style.width = progressPercent + '%';
     document.getElementById('progressBar').setAttribute('aria-valuenow', progressPercent);
     document.getElementById('progressPercentage').textContent = progressPercent + '%';
