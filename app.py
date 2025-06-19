@@ -12,6 +12,7 @@ import json
 import time
 import threading
 import queue
+import argparse
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -1133,4 +1134,18 @@ def debug_azure_openai():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Mass Email Sender Flask Application')
+    parser.add_argument('--port', '-p', type=int, default=5000, 
+                       help='Port to run the Flask application on (default: 5000)')
+    parser.add_argument('--host', type=str, default='0.0.0.0',
+                       help='Host to bind the Flask application to (default: 0.0.0.0)')
+    parser.add_argument('--debug', action='store_true', default=True,
+                       help='Run Flask in debug mode (default: True)')
+    
+    args = parser.parse_args()
+    
+    print(f"Starting Mass Email Sender on {args.host}:{args.port}")
+    print(f"Debug mode: {args.debug}")
+    
+    app.run(debug=args.debug, host=args.host, port=args.port)
